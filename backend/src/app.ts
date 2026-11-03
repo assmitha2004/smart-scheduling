@@ -42,6 +42,29 @@ export function createApp() {
   v1.get('/meta', (_req, res) => {
     res.json({ realtime: isRealtimeEnabled(), backgroundJobs: !!config.redisUrl });
   });
+  // TEMPORARY deployment diagnostic: runs one query and reports the exact error.
+  // Requires ?key=<AI_SERVICE_TOKEN>. Remove once the Vercel deployment works.
+  v1.get('/meta/db-check', async (req, res) => {
+    if (!config.aiServiceToken || req.query.key !== config.aiServiceToken) {
+      res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Not found' } });
+      return;
+    }
+    const started = Date.now();
+    try {
+      const users = await prisma.user.count();
+      res.json({ ok: true, users, ms: Date.now() - started, node: process.version, platform: process.platform });
+    } catch (err) {
+      const e = err as Error & { code?: string; errorCode?: string };
+      res.status(500).json({
+        ok: false,
+        ms: Date.now() - started,
+        node: process.version,
+        name: e?.name,
+        code: e?.code ?? e?.errorCode,
+        message: String(e?.message ?? err).slice(0, 3000),
+      });
+    }
+  });
   v1.use('/auth', authRouter);
   v1.use(requireAuth);
   v1.use('/users', usersRouter);

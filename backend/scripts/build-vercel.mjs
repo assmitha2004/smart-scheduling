@@ -36,6 +36,9 @@ await build({
       'const require = __createRequire(import.meta.url);',
       'const __filename = __fileURLToPath(import.meta.url);',
       'const __dirname = __pathDirname(__filename);',
+      // Lets Vercel's file tracer see the Prisma files copied next to the
+      // bundle (it ships only files it can see referenced). No I/O at runtime.
+      "void [new URL('./libquery_engine-rhel-openssl-3.0.x.so.node', import.meta.url), new URL('./schema.prisma', import.meta.url)];",
     ].join('\n'),
   },
   logLevel: 'warning',

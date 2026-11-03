@@ -9,7 +9,12 @@
       "root": "backend",
       "framework": "express",
       "buildCommand": "npm run vercel-build",
-      "entrypoint": "vercel-entry.mjs"
+      "entrypoint": "vercel-entry.mjs",
+      "functions": {
+        "vercel-entry.mjs": {
+          "includeFiles": "bundle/**"
+        }
+      }
     },
     "frontend": {
       "root": "frontend",
