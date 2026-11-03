@@ -148,7 +148,7 @@ The repo is set up for **Vercel Services** (`vercel.json` at the root): the fron
 
 | Path | Service |
 |---|---|
-| `/api/*` | `backend/` (Express; `vercel-build` bundles the app exported from `src/app.ts` into `dist/app.mjs`, the service entrypoint) |
+| `/api/*` | `backend/` (Express; `vercel-build` bundles the app exported from `src/app.ts` into `bundle/server.mjs`, loaded by the `vercel-entry.mjs` entrypoint) |
 | `/_ai/*` | `ai-service/` (FastAPI; `main.py`), protected by `AI_SERVICE_TOKEN` |
 | everything else | `frontend/` (Vite static build, SPA fallback) |
 
