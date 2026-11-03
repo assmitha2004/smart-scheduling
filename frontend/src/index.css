@@ -1,0 +1,83 @@
+@import 'tailwindcss';
+
+/* Design tokens. Components use bg-surface / text-fg etc. so light & dark both work. */
+@theme {
+  --color-bg: var(--c-bg);
+  --color-surface: var(--c-surface);
+  --color-surface-2: var(--c-surface-2);
+  --color-border: var(--c-border);
+  --color-fg: var(--c-fg);
+  --color-muted: var(--c-muted);
+  --color-accent: var(--c-accent);
+  --color-accent-fg: var(--c-accent-fg);
+  --color-accent-soft: var(--c-accent-soft);
+  --color-danger: var(--c-danger);
+  --color-danger-soft: var(--c-danger-soft);
+  --color-warn: var(--c-warn);
+  --color-warn-soft: var(--c-warn-soft);
+  --color-ok: var(--c-ok);
+  --color-ok-soft: var(--c-ok-soft);
+  --font-sans: 'Inter', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
+}
+
+:root {
+  --c-bg: #f6f7fb;
+  --c-surface: #ffffff;
+  --c-surface-2: #f1f3f9;
+  --c-border: #e3e6ef;
+  --c-fg: #161a2b;
+  --c-muted: #6a7088;
+  --c-accent: #4f46e5;
+  --c-accent-fg: #ffffff;
+  --c-accent-soft: #eef0ff;
+  --c-danger: #dc2626;
+  --c-danger-soft: #fdecec;
+  --c-warn: #b45309;
+  --c-warn-soft: #fff4e0;
+  --c-ok: #047857;
+  --c-ok-soft: #e4f7ef;
+  color-scheme: light;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --c-bg: #0d1020;
+    --c-surface: #151a2e;
+    --c-surface-2: #1c2238;
+    --c-border: #2a3150;
+    --c-fg: #e8eaf6;
+    --c-muted: #9aa1bf;
+    --c-accent: #818cf8;
+    --c-accent-fg: #0d1020;
+    --c-accent-soft: #232a52;
+    --c-danger: #f87171;
+    --c-danger-soft: #3a1c22;
+    --c-warn: #fbbf24;
+    --c-warn-soft: #3a2e14;
+    --c-ok: #34d399;
+    --c-ok-soft: #12322a;
+    color-scheme: dark;
+  }
+}
+
+html, body, #root { height: 100%; }
+body { background: var(--c-bg); color: var(--c-fg); font-family: var(--font-sans); -webkit-font-smoothing: antialiased; }
+
+/* FullCalendar theming */
+.fc { --fc-border-color: var(--c-border); --fc-page-bg-color: var(--c-surface); --fc-neutral-bg-color: var(--c-surface-2);
+      --fc-today-bg-color: color-mix(in srgb, var(--c-accent) 7%, transparent); --fc-now-indicator-color: var(--c-danger);
+      --fc-button-bg-color: var(--c-surface); --fc-button-border-color: var(--c-border); --fc-button-text-color: var(--c-fg);
+      --fc-button-hover-bg-color: var(--c-surface-2); --fc-button-hover-border-color: var(--c-border);
+      --fc-button-active-bg-color: var(--c-accent-soft); --fc-button-active-border-color: var(--c-accent); font-size: 0.85rem; }
+.fc .fc-button { box-shadow: none !important; text-transform: capitalize; font-weight: 500; }
+.fc .fc-toolbar-title { font-size: 1.1rem; font-weight: 600; }
+.fc .fc-bg-event.working-hours { background: color-mix(in srgb, var(--c-ok) 8%, transparent); opacity: 1; }
+.fc .fc-non-business { background: color-mix(in srgb, var(--c-muted) 9%, transparent); }
+.fc-event.block-event { border-width: 0 0 0 3px; border-radius: 6px; padding: 1px 4px; }
+.fc-event.fixed-event { background: repeating-linear-gradient(135deg, var(--c-surface-2), var(--c-surface-2) 6px, var(--c-border) 6px, var(--c-border) 8px) !important; color: var(--c-fg) !important; border: 1px solid var(--c-border) !important; }
+.fc-event.fixed-event .fc-event-main, .fc-event.fixed-event .fc-event-time, .fc-event.fixed-event .fc-event-title { color: var(--c-fg) !important; }
+.fc-event.completed-event { opacity: 0.55; text-decoration: line-through; }
+
+/* Chart series (validated: CVD ΔE 24.7 light / passes dark against the app surfaces) */
+:root { --series-1: #2a78d6; --series-2: #eb6834; }
+@media (prefers-color-scheme: dark) { :root { --series-1: #3987e5; --series-2: #d95926; } }

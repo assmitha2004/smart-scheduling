@@ -1,0 +1,341 @@
+// Smart Scheduling — PostgreSQL schema. All timestamps are stored in UTC.
+
+generator client {
+  provider      = "prisma-client-js"
+  binaryTargets = ["native", "debian-openssl-3.0.x", "linux-musl-openssl-3.0.x"]
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum WorkspaceRole {
+  OWNER
+  ADMIN
+  MEMBER
+}
+
+enum ProjectStatus {
+  PLANNING
+  ACTIVE
+  ON_HOLD
+  COMPLETED
+  ARCHIVED
+}
+
+enum TaskPriority {
+  LOW
+  MEDIUM
+  HIGH
+  URGENT
+}
+
+enum TaskStatus {
+  TODO
+  IN_PROGRESS
+  DONE
+  CANCELLED
+}
+
+enum DependencyType {
+  FINISH_TO_START
+}
+
+enum CalendarEventType {
+  FIXED
+  BREAK
+  UNAVAILABLE
+}
+
+enum EventSource {
+  MANUAL
+  IMPORTED
+}
+
+enum BlockStatus {
+  PROPOSED
+  CONFIRMED
+  COMPLETED
+  CANCELLED
+}
+
+enum RecommendationStatus {
+  PENDING
+  ACCEPTED
+  DISMISSED
+  SUPERSEDED
+}
+
+model User {
+  id                  String   @id @default(uuid()) @db.Uuid
+  name                String
+  email               String   @unique
+  passwordHash        String   @map("password_hash")
+  timezone            String   @default("UTC")
+  focusBlockMinutes   Int      @default(90) @map("focus_block_minutes")
+  allowTaskSplitting  Boolean  @default(true) @map("allow_task_splitting")
+  onboarded           Boolean  @default(false)
+  /// Optimistic-concurrency version of the user's committed schedule.
+  scheduleVersion     Int      @default(0) @map("schedule_version")
+  quietHoursStart     String?  @map("quiet_hours_start")
+  quietHoursEnd       String?  @map("quiet_hours_end")
+  /// e.g. { "taskReminders": true, "deadlineRisk": true, "dependencyUnblocked": true, "dailyPlan": true, "reminderLeadMinutes": 10 }
+  notificationPrefs   Json     @default("{}") @map("notification_prefs")
+  /// Explicit consent to send task text to an external AI provider.
+  aiExternalConsent   Boolean  @default(false) @map("ai_external_consent")
+  createdAt           DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt           DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  ownedWorkspaces   Workspace[]              @relation("WorkspaceOwner")
+  memberships       WorkspaceMember[]
+  assignedTasks     Task[]                   @relation("TaskAssignee")
+  calendarEvents    CalendarEvent[]
+  availabilityRules AvailabilityRule[]
+  scheduledBlocks   ScheduledBlock[]
+  recommendations   ScheduleRecommendation[]
+  notifications     Notification[]
+  activityLogs      ActivityLog[]
+  refreshTokens     RefreshToken[]
+  comments          TaskComment[]
+
+  @@map("users")
+}
+
+model RefreshToken {
+  id        String    @id @default(uuid()) @db.Uuid
+  userId    String    @map("user_id") @db.Uuid
+  tokenHash String    @unique @map("token_hash")
+  expiresAt DateTime  @map("expires_at") @db.Timestamptz(3)
+  revokedAt DateTime? @map("revoked_at") @db.Timestamptz(3)
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("refresh_tokens")
+}
+
+model Workspace {
+  id        String   @id @default(uuid()) @db.Uuid
+  name      String
+  ownerId   String   @map("owner_id") @db.Uuid
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  owner        User              @relation("WorkspaceOwner", fields: [ownerId], references: [id])
+  members      WorkspaceMember[]
+  projects     Project[]
+  activityLogs ActivityLog[]
+
+  @@map("workspaces")
+}
+
+model WorkspaceMember {
+  workspaceId String        @map("workspace_id") @db.Uuid
+  userId      String        @map("user_id") @db.Uuid
+  role        WorkspaceRole @default(MEMBER)
+  createdAt   DateTime      @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([workspaceId, userId])
+  @@index([userId])
+  @@map("workspace_members")
+}
+
+model Project {
+  id          String        @id @default(uuid()) @db.Uuid
+  workspaceId String        @map("workspace_id") @db.Uuid
+  name        String
+  description String?
+  color       String        @default("#6366f1")
+  startDate   DateTime?     @map("start_date") @db.Timestamptz(3)
+  targetDate  DateTime?     @map("target_date") @db.Timestamptz(3)
+  status      ProjectStatus @default(ACTIVE)
+  createdAt   DateTime      @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt   DateTime      @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  workspace  Workspace   @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  tasks      Task[]
+  milestones Milestone[]
+
+  @@index([workspaceId])
+  @@map("projects")
+}
+
+model Milestone {
+  id        String   @id @default(uuid()) @db.Uuid
+  projectId String   @map("project_id") @db.Uuid
+  name      String
+  dueAt     DateTime @map("due_at") @db.Timestamptz(3)
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  project   Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@index([projectId])
+  @@map("milestones")
+}
+
+model Task {
+  id               String       @id @default(uuid()) @db.Uuid
+  projectId        String       @map("project_id") @db.Uuid
+  assigneeId       String?      @map("assignee_id") @db.Uuid
+  title            String
+  description      String?
+  estimatedMinutes Int          @default(60) @map("estimated_minutes")
+  actualMinutes    Int          @default(0) @map("actual_minutes")
+  priority         TaskPriority @default(MEDIUM)
+  status           TaskStatus   @default(TODO)
+  splittable       Boolean      @default(true)
+  earliestStartAt  DateTime?    @map("earliest_start_at") @db.Timestamptz(3)
+  dueAt            DateTime?    @map("due_at") @db.Timestamptz(3)
+  completedAt      DateTime?    @map("completed_at") @db.Timestamptz(3)
+  /// Optimistic-concurrency version for task edits.
+  version          Int          @default(1)
+  createdAt        DateTime     @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt        DateTime     @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  project      Project          @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  assignee     User?            @relation("TaskAssignee", fields: [assigneeId], references: [id], onDelete: SetNull)
+  dependencies TaskDependency[] @relation("DependentTask")
+  dependents   TaskDependency[] @relation("PrerequisiteTask")
+  blocks       ScheduledBlock[]
+  comments     TaskComment[]
+
+  @@index([projectId, status])
+  @@index([assigneeId, dueAt])
+  @@map("tasks")
+}
+
+model TaskDependency {
+  id              String         @id @default(uuid()) @db.Uuid
+  taskId          String         @map("task_id") @db.Uuid
+  dependsOnTaskId String         @map("depends_on_task_id") @db.Uuid
+  dependencyType  DependencyType @default(FINISH_TO_START) @map("dependency_type")
+  createdAt       DateTime       @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  task      Task @relation("DependentTask", fields: [taskId], references: [id], onDelete: Cascade)
+  dependsOn Task @relation("PrerequisiteTask", fields: [dependsOnTaskId], references: [id], onDelete: Cascade)
+
+  @@unique([taskId, dependsOnTaskId])
+  @@index([dependsOnTaskId])
+  @@map("task_dependencies")
+}
+
+model TaskComment {
+  id        String   @id @default(uuid()) @db.Uuid
+  taskId    String   @map("task_id") @db.Uuid
+  authorId  String   @map("author_id") @db.Uuid
+  body      String
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  task   Task @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  author User @relation(fields: [authorId], references: [id], onDelete: Cascade)
+
+  @@index([taskId, createdAt])
+  @@map("task_comments")
+}
+
+model CalendarEvent {
+  id        String            @id @default(uuid()) @db.Uuid
+  userId    String            @map("user_id") @db.Uuid
+  title     String
+  startAt   DateTime          @map("start_at") @db.Timestamptz(3)
+  endAt     DateTime          @map("end_at") @db.Timestamptz(3)
+  eventType CalendarEventType @default(FIXED) @map("event_type")
+  source    EventSource       @default(MANUAL)
+  createdAt DateTime          @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, startAt, endAt])
+  @@map("calendar_events")
+}
+
+model AvailabilityRule {
+  id        String  @id @default(uuid()) @db.Uuid
+  userId    String  @map("user_id") @db.Uuid
+  /// 0 = Sunday ... 6 = Saturday
+  weekday   Int
+  /// Local wall-clock "HH:mm" in the user's timezone
+  startTime String  @map("start_time")
+  endTime   String  @map("end_time")
+  isActive  Boolean @default(true) @map("is_active")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("availability_rules")
+}
+
+model ScheduledBlock {
+  id              String      @id @default(uuid()) @db.Uuid
+  taskId          String      @map("task_id") @db.Uuid
+  userId          String      @map("user_id") @db.Uuid
+  startAt         DateTime    @map("start_at") @db.Timestamptz(3)
+  endAt           DateTime    @map("end_at") @db.Timestamptz(3)
+  status          BlockStatus @default(CONFIRMED)
+  scheduleVersion Int         @map("schedule_version")
+  createdAt       DateTime    @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt       DateTime    @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  task Task @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, startAt, endAt])
+  @@index([taskId])
+  @@map("scheduled_blocks")
+}
+
+model ScheduleRecommendation {
+  id                 String               @id @default(uuid()) @db.Uuid
+  userId             String               @map("user_id") @db.Uuid
+  recommendationType String               @map("recommendation_type")
+  /// Full engine output (proposed blocks, warnings, explanations, diff).
+  payload            Json
+  reason             String
+  /// User's scheduleVersion when this proposal was generated.
+  baseVersion        Int                  @map("base_version")
+  status             RecommendationStatus @default(PENDING)
+  createdAt          DateTime             @default(now()) @map("created_at") @db.Timestamptz(3)
+  resolvedAt         DateTime?            @map("resolved_at") @db.Timestamptz(3)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, status, createdAt])
+  @@map("schedule_recommendations")
+}
+
+model Notification {
+  id        String    @id @default(uuid()) @db.Uuid
+  userId    String    @map("user_id") @db.Uuid
+  type      String
+  message   String
+  data      Json?
+  /// Prevents duplicate alerts (e.g. one risk alert per task per day).
+  dedupeKey String?   @unique @map("dedupe_key")
+  readAt    DateTime? @map("read_at") @db.Timestamptz(3)
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, readAt, createdAt])
+  @@map("notifications")
+}
+
+model ActivityLog {
+  id          String   @id @default(uuid()) @db.Uuid
+  workspaceId String?  @map("workspace_id") @db.Uuid
+  actorId     String   @map("actor_id") @db.Uuid
+  entityType  String   @map("entity_type")
+  entityId    String   @map("entity_id")
+  action      String
+  metadata    Json     @default("{}")
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  workspace Workspace? @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  actor     User       @relation(fields: [actorId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId, createdAt])
+  @@index([entityType, entityId])
+  @@map("activity_logs")
+}

@@ -1,0 +1,8 @@
+node_modules/
+dist/
+.env
+*.log
+.venv/
+__pycache__/
+.pytest_cache/
+frontend/e2e/screenshots/

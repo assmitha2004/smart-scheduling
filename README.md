@@ -1,0 +1,287 @@
+# Smart Scheduling
+
+**AI-assisted, dependency-aware planning.** Smart Scheduling turns projects, tasks, estimates and dependencies into a realistic plan that fits your real calendar. It flags deadline risk early, explains every recommendation, and re-plans with a before/after preview when something slips.
+
+The scheduling engine is deterministic and fully tested. AI only drafts tasks and rephrases briefings, and the user approves everything.
+
+```
+React + TypeScript (Vite, Tailwind, FullCalendar, custom SVG Gantt)
+        │  REST /api/v1 + Socket.IO
+Node.js + Express + TypeScript ──── Scheduling engine (DAG · CPM · interval allocation · replan)
+        │            │
+   PostgreSQL     Redis + BullMQ workers (reminders, daily plan, deadline-risk sweeps)
+   (Prisma)          │
+              Python FastAPI AI service ── built-in parser (default) / Claude (opt-in)
+```
+
+---
+
+## Quick start
+
+### Option A: Docker (everything)
+
+```bash
+cp .env.example .env          # set JWT_SECRET
+```
+
+```bash
+docker compose up --build
+```
+
+Open http://localhost:8080 and create an account. To load demo data:
+
+```bash
+cd backend && npm ci && DATABASE_URL=postgresql://postgres:postgres@localhost:5432/smart_scheduling npm run db:seed
+```
+
+Demo login: `demo@smartscheduling.dev` / `password123`.
+
+### Option B: Local development
+
+Prerequisites: Node 22, Python 3.11+, PostgreSQL 16, Redis 7 (optional).
+
+```bash
+# 1. Backend API (http://localhost:4000)
+cd backend
+cp ../.env.example .env           # edit DATABASE_URL etc.
+npm install
+npx prisma migrate deploy
+npm run db:seed                   # optional demo data
+npm run dev
+```
+
+```bash
+# 2. AI service (http://localhost:8000)
+cd ai-service
+python -m venv .venv && . .venv/bin/activate
+pip install -r requirements.txt
+uvicorn app.main:app --reload --port 8000
+```
+
+```bash
+# 3. Frontend (http://localhost:5173, proxies /api and /socket.io to :4000)
+cd frontend
+npm install
+npm run dev
+```
+
+Without `REDIS_URL`, background jobs are disabled and everything else still works. With `INLINE_WORKER=true`, the BullMQ workers run inside the API process. In production, run them separately (`npm run worker`), as `docker-compose.yml` does.
+
+---
+
+## What's implemented
+
+| Area | What you get |
+|---|---|
+| **Auth & workspaces** | Register/login, JWT access tokens with rotating single-use refresh tokens, personal workspace per user, member invites with owner/admin/member roles, membership checked on every protected request |
+| **Projects & tasks** | Projects with target dates and milestones; tasks with estimate, logged time, priority, status, earliest start, due date, assignee, splittable flag; comments; activity log; optimistic concurrency on edits (`version`) |
+| **Dependencies** | Finish-to-start links; cycle detection **before saving** with a readable explanation (`"A" → "B" → "C" → "A"`); per-workspace advisory lock so two concurrent requests can't each add half a cycle; DB check constraint against self-dependencies |
+| **Calendar** | Day/week/month views in the user's timezone; task blocks beside fixed events, breaks and unavailable time (hatched); working hours shaded; **drag-and-drop with a server-side dry-run check** (fixed-event clash, double booking, prerequisite order = errors; outside hours, downstream impact, deadline = warnings you confirm); project and status filters |
+| **Timeline** | Custom SVG Gantt: dependency connectors, critical path in red, milestones, target date, today line, late/blocked/at-risk flags, progress, day/week/month zoom, scheduled vs projected bars |
+| **Scheduling engine** | Validation, cycle check, topological order, CPM, interval subtraction, greedy list scheduling into focus blocks, deadline inheritance and a deadline-repair pass, explanations per task. Never places work outside availability; reports shortfalls instead |
+| **Preview → approve** | `preview` stores a pending recommendation; nothing touches the calendar until `commit`. Users can reject individual tasks (their dependents are excluded too) |
+| **Replanning** | Delay a task or change an estimate: only that task and its descendants move, unaffected blocks are locked in place, and you get a before/after diff, impact chain and finish-date shift before approving |
+| **Deadline feasibility** | Per task and per project target: required effort (including prerequisites) vs free capacity, ON_TRACK / AT_RISK / INFEASIBLE / OVERDUE, the tasks most responsible, and options (cut scope by X, move deadline to Y, add Z min/day, start earlier), with stated assumptions |
+| **Daily briefing** | Top 3 priorities with reasons and suggested block, suggested first task, blocked tasks, deadlines in the next 3 days, today's capacity, unscheduled work. Built from engine data; AI may only rephrase |
+| **AI** | Natural-language → **draft** tasks + dependencies (review/edit/confirm screen); friendlier briefing wording. Schema-validated in both the AI service (Pydantic) and the backend (Zod); invalid items are rejected individually, and a malformed response falls back to the manual flow |
+| **Notifications** | Upcoming-block reminders (delayed BullMQ jobs, skipped if the block moved), deadline-risk alerts, dependency-unblocked, daily plan at the user's local hour, quiet hours, per-type preferences, deduplication keys |
+| **Real-time** | Socket.IO rooms per user; workers publish through Redis so events from any process reach the browser |
+| **Analytics** | Planned vs actual time per week, workload by project, overdue trend, estimate accuracy (median ratio, MAPE, % within ±20%), deadline feasibility |
+
+---
+
+## The scheduling engine
+
+`backend/src/engine/` is pure TypeScript with no DB, network or clock access. Every input, including `now`, is passed in, so results are deterministic and unit-testable.
+
+| File | Responsibility |
+|---|---|
+| `graph.ts` | DAG utilities: iterative DFS cycle detection with path reconstruction, Kahn topological sort with deterministic tie-breaks, ancestors/descendants |
+| `cpm.ts` | Critical Path Method on remaining effort (forward/backward pass, slack, one concrete critical chain) |
+| `intervals.ts` | Half-open interval merge/subtract/clip, sweep-line overlap detection |
+| `availability.ts` | Weekly working-hour rules → concrete UTC intervals in the user's timezone (DST-safe via Luxon), minus events |
+| `ranking.ts` | Transparent score = priority + urgency + critical-path bonus + blocker impact + age, each factor returned with a human-readable reason; weights configurable |
+| `scheduler.ts` | The planner (below) |
+| `feasibility.ts` | Deadline risk, recommendations, earliest feasible date |
+| `replan.ts` | Affected-set computation, locking of unaffected blocks, before/after diff |
+| `briefing.ts` | Daily priority summary |
+
+**Algorithm (`generateSchedule`)**
+
+1. Validate input; reject dependency cycles with the offending path.
+2. Compute the critical path and, in one reverse-topological pass, each task's downstream set and **inherited deadline** (the earliest due date of anything waiting on it), so prerequisites of urgent work aren't starved.
+3. Rank tasks.
+4. Free time = working hours − fixed events − breaks − unavailable − locked blocks.
+5. Greedy serial schedule generation: repeatedly take the highest-ranked task whose prerequisites are all complete/placed, and place it at the earliest free time after they finish. Long tasks are split into focus blocks (≤ the user's focus length, ≥ 30 min, 15-min breaks between) unless marked unsplittable.
+6. **Deadline repair:** if any deadline is missed, retry with that task and its prerequisites placed first. Keep the change only if total lateness strictly drops and no extra work becomes unscheduled (≤ 6 attempts).
+7. Return blocks, unscheduled tasks (with the reason: insufficient capacity, no contiguous slot, prerequisite unscheduled), warnings, critical path, per-task explanations and a capacity summary.
+
+The engine **never** fabricates a schedule: work that doesn't fit is reported, not squeezed in.
+
+---
+
+## Engineering scenarios (spec §12) → where they're handled and tested
+
+| Scenario | Handling | Test |
+|---|---|---|
+| **A. Dependency cycle** | DFS cycle check before insert, under a per-workspace advisory lock; 422 with the cycle path | `api.test.ts › rejects a dependency cycle`, `engine.test.ts › detects the A → B → C → A cycle` |
+| **B. Two tasks compete for one slot** | Commit re-validates overlaps in a transaction; **Postgres exclusion constraint** (`EXCLUDE USING gist (user_id WITH =, tstzrange(start_at,end_at) WITH &&) WHERE status='CONFIRMED'`) as the last line of defence | `api.test.ts › database rejects overlapping confirmed blocks`, `› lets exactly one of two concurrent commits win` |
+| **C. Prerequisite delayed** | `POST /schedules/replan` → affected descendants, locked unaffected blocks, diff + impact, preview first | `api.test.ts › replans only downstream work…`, `engine.test.ts › replanning` |
+| **D. No feasible schedule** | Engine reports `INSUFFICIENT_CAPACITY`; feasibility reports the shortfall with options | `api.test.ts › reports a capacity shortfall…`, `engine.test.ts › reports capacity shortfall…` |
+| **E. Two sessions commit** | Compare-and-set on `users.schedule_version` (`UPDATE … WHERE schedule_version = expected`) → 409 `STALE_SCHEDULE` | `api.test.ts › rejects a stale commit`, `› exactly one of two concurrent commits wins` |
+| **F. AI returns invalid output** | Per-item validation in Python and TypeScript; bad items listed as rejected, the rest kept; malformed envelope → 503 with `fallback: "manual"`; provider errors fall back to the built-in parser | `api.test.ts › rejects invalid AI fields…`, `› falls back to the manual flow`, `test_ai_service.py › test_llm_invalid_items_are_dropped` |
+
+---
+
+## API (v1)
+
+All endpoints except `/auth/*` need `Authorization: Bearer <accessToken>`. Errors are `{"error": {"code", "message", "details?"}}`.
+
+| Method | Endpoint | Purpose |
+|---|---|---|
+| POST | `/auth/register` · `/auth/login` · `/auth/refresh` · `/auth/logout` | Accounts and rotating refresh tokens |
+| GET/PATCH | `/users/me` | Profile, timezone, focus length, notification prefs, quiet hours, AI consent |
+| GET/PUT | `/availability` | Weekly working hours |
+| GET/POST | `/workspaces` · `/workspaces/:id/members` · `/workspaces/:id/activity` | Workspaces, members, audit trail |
+| GET/POST/PATCH/DELETE | `/projects` · `/projects/:id` | Projects |
+| GET | `/projects/:id/tasks` · `/projects/:id/timeline` | Task list; Gantt data with CPM and risk flags |
+| POST/DELETE | `/projects/:id/milestones` | Milestones |
+| GET/POST | `/tasks` | List (filters) / create (with `dependsOn`) |
+| GET/PATCH/DELETE | `/tasks/:id` | Details (deps, dependents, blocks, comments, activity) / update with `version` / delete |
+| GET | `/tasks/:id/suggestions` | Where the engine would place this task now, and why |
+| POST/DELETE | `/tasks/:id/dependencies` · `/tasks/:id/dependencies/:dependencyId` | Add (cycle-checked) / remove |
+| POST | `/tasks/:id/comments` · `/tasks/:id/log-time` | Comments; time tracking |
+| GET | `/calendar?from&to&projectId` | Events, blocks, working hours |
+| POST/PATCH/DELETE | `/calendar/events[/:id]` | Fixed events, breaks, unavailable |
+| POST/PATCH | `/calendar/blocks/:id/check` · `/calendar/blocks/:id` | Drag-and-drop dry run / move |
+| POST | `/calendar/blocks/:id/complete` | Complete a block and log its time |
+| POST | `/schedules/preview` | Generate a proposed schedule (stored as a pending recommendation) |
+| POST | `/schedules/commit` | `{recommendationId, expectedVersion, excludeTaskIds?}`, returns 409 if stale |
+| POST | `/schedules/replan` | `{changes:[{taskId, delayUntil?, estimatedMinutes?, priority?}]}` or `{taskIds}` / `{full:true}` |
+| GET/POST | `/schedules/recommendations` · `/…/:id/dismiss` | History; reject a preview |
+| GET | `/briefings/daily?ai=true` | Daily priority summary (+ optional AI wording) |
+| GET | `/analytics/deadline-risk` · `/analytics/overview?weeks=8` | Feasibility; planned vs actual, workload, trends, estimate accuracy |
+| GET/POST | `/notifications` · `/notifications/:id/read` · `/notifications/read-all` | In-app notifications |
+| POST | `/ai/extract-tasks` · `/ai/confirm-tasks` | Draft tasks from text; persist approved drafts atomically |
+
+Preview response shape (abridged):
+
+```json
+{
+  "recommendationId": "…", "scheduleVersion": 4, "ok": true,
+  "proposedBlocks": [{ "taskId": "…", "title": "Build backend APIs", "startAt": "2026-11-03T09:00:00.000Z", "endAt": "2026-11-03T10:30:00.000Z", "locked": false }],
+  "unscheduledTasks": [], "warnings": [{ "taskId": "…", "code": "DEADLINE_MISSED", "reason": "…" }],
+  "explanations": [{ "taskId": "…", "rank": 1, "score": 89, "reasons": ["high priority (+45)", "on the critical path (+20)", "blocks 4 downstream task(s) (+24)"] }],
+  "criticalPath": [{ "taskId": "…", "title": "…" }],
+  "summary": { "availableMinutes": 1170, "scheduledMinutes": 1080, "remainingMinutes": 90, "projectedFinish": "…" },
+  "risks": [{ "title": "Website launch", "status": "AT_RISK", "explanation": "…", "recommendations": [{ "type": "MOVE_DEADLINE", "message": "…" }] }]
+}
+```
+
+---
+
+## Data model
+
+PostgreSQL via Prisma (`backend/prisma/schema.prisma`). All timestamps are `timestamptz` (UTC) and are displayed in the user's timezone.
+
+Tables: `users`, `refresh_tokens`, `workspaces`, `workspace_members` (PK `(workspace_id, user_id)`), `projects`, `milestones`, `tasks`, `task_dependencies` (unique `(task_id, depends_on_task_id)`, no self-links), `task_comments`, `calendar_events`, `availability_rules`, `scheduled_blocks`, `schedule_recommendations` (JSONB payload, `base_version`), `notifications` (unique `dedupe_key`), `activity_logs` (JSONB metadata).
+
+Indexes include `tasks(project_id, status)`, `tasks(assignee_id, due_at)`, and `scheduled_blocks(user_id, start_at, end_at)`. Hand-written SQL in the initial migration adds the overlap exclusion constraint and check constraints.
+
+---
+
+## AI & privacy
+
+- The AI service runs a **built-in deterministic parser by default**. Nothing leaves your server.
+- To use Claude, set `AI_PROVIDER=anthropic` and `ANTHROPIC_API_KEY` (model `ANTHROPIC_MODEL`, default `claude-opus-5-5`). Each user must still opt in under **Settings → AI & privacy**. Without consent, their text is never sent externally.
+- Claude is called with structured outputs (`messages.parse` with a Pydantic schema). Refusals, errors and invalid output fall back to the built-in parser or template.
+- AI-generated briefings pass a grounding check: every task they mention must exist in the engine's facts, or the template is used instead.
+- AI output is always a **draft**. It never writes to the schedule.
+
+Example (built-in parser):
+
+> "Prepare the project demo by Friday. Finish API tests first, then create slides. I need around two hours for slides."
+
+→ `Finish API tests` (estimate to confirm) → `Create slides` (120 min, due Friday 17:00), with "API tests before slides" as a dependency.
+
+---
+
+## Testing
+
+```bash
+cd backend && npm test            # 51 tests: engine unit tests + API integration tests + worker jobs (needs Postgres)
+```
+
+```bash
+cd ai-service && python -m pytest # 25 tests: parsing, extraction, validation, fallbacks, grounding
+```
+
+```bash
+cd frontend && npm run build      # type-check + production build
+```
+
+```bash
+cd frontend && node e2e/smoke.mjs # 16-step browser journey against a running stack
+```
+
+Integration tests use the database in `TEST_DATABASE_URL` (default `postgresql://postgres:postgres@localhost:5432/smart_scheduling_test`, migrated with `prisma migrate deploy`). The E2E script covers: register → configure availability → create dependent tasks → cycle rejected → AI drafts confirmed → generate and accept a schedule → calendar → daily briefing → delay → before/after preview → accept revised plan → analytics → timeline → mobile layout. Set `BASE_URL` to run it against Docker (`http://localhost:8080`). It needs the `playwright` package, or set `PLAYWRIGHT_MODULE` to point at an installed copy.
+
+### Measured performance
+
+Measured in the development container (`npm run benchmark`, `npm run latency`). Your numbers will differ.
+
+| Tasks | Dependencies | Cycle check | Schedule generation (median of 5) | Constraints satisfied |
+|---|---|---|---|---|
+| 100 | 99 | 0.6 ms | 68 ms | yes |
+| 500 | 518 | 0.5 ms | 288 ms | yes |
+| 1,000 | 1,063 | 0.6 ms | 634 ms | yes |
+
+"Constraints satisfied" is checked independently by the benchmark: every dependency is respected, every block lies inside working hours, and no blocks overlap. At 1,000 tasks, 123 tasks don't fit the 365-day synthetic horizon and are correctly reported as unscheduled.
+
+| Endpoint (demo data, n=50) | p50 | p95 | p99 |
+|---|---|---|---|
+| `GET /calendar` | 5.9 ms | 9.8 ms | 29.1 ms |
+| `GET /briefings/daily` | 17.1 ms | 21.7 ms | 30.2 ms |
+| `GET /analytics/deadline-risk` | 15.1 ms | 20.3 ms | 26.4 ms |
+| `POST /schedules/preview` | 21.8 ms | 26.7 ms | 46.1 ms |
+
+---
+
+## Repository layout
+
+```
+smart-scheduling/
+├── backend/                 Node.js + Express + TypeScript API
+│   ├── src/engine/          deterministic scheduling engine (pure functions)
+│   ├── src/modules/         auth, users, workspaces, projects, tasks, calendar,
+│   │                        scheduling, analytics, briefings, notifications, ai, activity
+│   ├── src/middleware/      auth, validation (zod), errors
+│   ├── src/queues/ workers/ BullMQ queues and jobs
+│   ├── src/realtime/        Socket.IO + Redis relay
+│   ├── prisma/              schema, migrations (incl. exclusion constraint), seed
+│   ├── scripts/             benchmark.ts, latency.ts
+│   └── tests/               unit/ (engine) and integration/ (API, workers)
+├── ai-service/              Python FastAPI: task extraction, daily briefing, schemas
+├── frontend/                React + TypeScript + Tailwind + FullCalendar
+│   ├── src/pages/           landing, auth, onboarding, dashboard, calendar,
+│   │                        projects, project detail, planning, analytics, settings
+│   ├── src/features/        tasks (detail panel), projects (Gantt), scheduling, analytics
+│   └── e2e/smoke.mjs        browser journey
+├── docker-compose.yml       postgres, redis, ai-service, backend, worker, frontend (nginx)
+├── .github/workflows/ci.yml
+└── .env.example
+```
+
+---
+
+## Design decisions
+
+- **Modular monolith + one Python service.** The engine lives in the API process, so previews take tens of milliseconds. Only the AI service is separate, because it has a different runtime.
+- **Correctness lives in the engine, not the model.** Priorities, feasibility and placement are deterministic and unit-tested; AI only drafts and rephrases.
+- **Defence in depth for concurrency.** Optimistic version checks catch stale sessions; transactions keep commits atomic; the exclusion constraint makes double-booking impossible even under races.
+- **Preview before change.** Every schedule mutation goes through a stored recommendation the user approves, or an explicit drag-and-drop with a dry-run check.
+- **Explainability.** Ranking factors, waits, deadline inheritance, repair moves, risk assumptions and recommendations are all returned as text the UI shows.
+
+## Future work
+
+Calendar import/sync (Google), team capacity balancing, more dependency types (SS/FF/SF), recurring tasks, OR-Tools optimisation, learning estimates from history (the estimate-accuracy data is already collected), email/Slack delivery, and a mobile app.
