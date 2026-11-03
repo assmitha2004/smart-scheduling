@@ -150,3 +150,17 @@ def test_ungrounded_llm_briefing_is_rejected(monkeypatch):
     monkeypatch.setattr(llm, "structured", lambda *a, **k: LlmBriefing(text='Start with "Write novel" today.', referencedTaskIds=["zzz"]))
     out = make_briefing(BriefingRequest(facts=FACTS, allow_external=True))
     assert out.provider == "template"
+
+
+def test_routes_are_served_under_vercel_prefix():
+    r = client.post("/_ai/extract-tasks", json={"text": "Write report by Friday"})
+    assert r.status_code == 200 and r.json()["tasks"][0]["title"] == "Write report"
+    assert client.get("/_ai/health").json()["status"] == "ok"
+
+
+def test_internal_token_is_enforced_when_configured(monkeypatch):
+    monkeypatch.setenv("AI_SERVICE_TOKEN", "s3cret")
+    body = {"text": "Write report by Friday"}
+    assert client.post("/_ai/extract-tasks", json=body).status_code == 401
+    assert client.post("/_ai/extract-tasks", json=body, headers={"x-internal-token": "nope"}).status_code == 401
+    assert client.post("/_ai/extract-tasks", json=body, headers={"x-internal-token": "s3cret"}).status_code == 200

@@ -30,6 +30,7 @@ services:
       AI_PROVIDER: ${AI_PROVIDER:-rules}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       ANTHROPIC_MODEL: ${ANTHROPIC_MODEL:-claude-opus-5-5}
+      AI_SERVICE_TOKEN: ${AI_SERVICE_TOKEN:-}
     ports: ["8000:8000"]
 
   backend:
@@ -40,6 +41,7 @@ services:
       JWT_SECRET: ${JWT_SECRET:?set JWT_SECRET in .env}
       CORS_ORIGIN: http://localhost:8080
       AI_SERVICE_URL: http://ai-service:8000
+      AI_SERVICE_TOKEN: ${AI_SERVICE_TOKEN:-}
       PORT: "4000"
     depends_on:
       postgres: { condition: service_healthy }

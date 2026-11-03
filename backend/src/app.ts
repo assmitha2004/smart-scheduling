@@ -6,6 +6,7 @@ import { config } from './config.js';
 import { prisma } from './db.js';
 import { requireAuth } from './middleware/auth.js';
 import { errorHandler, notFoundHandler } from './middleware/error.js';
+import { isRealtimeEnabled } from './realtime/socket.js';
 import { authRouter } from './modules/auth/auth.routes.js';
 import { availabilityRouter, usersRouter } from './modules/users/users.routes.js';
 import { workspacesRouter } from './modules/workspaces/workspaces.routes.js';
@@ -37,6 +38,10 @@ export function createApp() {
   });
 
   const v1 = Router();
+  /** Public capabilities, so the client knows whether to open a WebSocket. */
+  v1.get('/meta', (_req, res) => {
+    res.json({ realtime: isRealtimeEnabled(), backgroundJobs: !!config.redisUrl });
+  });
   v1.use('/auth', authRouter);
   v1.use(requireAuth);
   v1.use('/users', usersRouter);
@@ -56,3 +61,9 @@ export function createApp() {
   app.use(errorHandler);
   return app;
 }
+
+/**
+ * Default export for serverless hosts (Vercel detects `src/app.ts` and serves
+ * the exported Express app as a function). No WebSockets or workers here.
+ */
+export default createApp();

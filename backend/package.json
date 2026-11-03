@@ -4,10 +4,10 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "tsx watch src/server.ts",
+    "dev": "tsx watch src/main.ts",
     "worker": "tsx src/workers/index.ts",
     "build": "tsc -p tsconfig.build.json",
-    "start": "node dist/server.js",
+    "start": "node dist/main.js",
     "start:worker": "node dist/workers/index.js",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
@@ -17,7 +17,9 @@
     "db:migrate:dev": "prisma migrate dev",
     "db:seed": "tsx prisma/seed.ts",
     "benchmark": "tsx scripts/benchmark.ts",
-    "latency": "tsx scripts/latency.ts"
+    "latency": "tsx scripts/latency.ts",
+    "postinstall": "prisma generate",
+    "vercel-build": "prisma migrate deploy && npm run build"
   },
   "prisma": {
     "seed": "tsx prisma/seed.ts"

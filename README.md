@@ -17,7 +17,9 @@ Turns projects, tasks, estimates and dependencies into a **realistic plan that f
 ![Tailwind](https://img.shields.io/badge/Tailwind_CSS-06B6D4?logo=tailwindcss&logoColor=white)
 ![Docker](https://img.shields.io/badge/Docker-2496ED?logo=docker&logoColor=white)
 
-**76 automated tests** · **1,000-task schedule in ~0.6 s** · **p95 API latency < 27 ms** · **0 double-bookings by construction**
+[![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https%3A%2F%2Fgithub.com%2Fassmitha2004%2Fsmart-scheduling&env=DATABASE_URL,JWT_SECRET,AI_SERVICE_TOKEN&envDescription=Postgres%20connection%20string%2C%20a%20long%20random%20JWT%20secret%2C%20and%20a%20random%20token%20shared%20with%20the%20AI%20service&envLink=https%3A%2F%2Fgithub.com%2Fassmitha2004%2Fsmart-scheduling%23%EF%B8%8F-deploy-to-vercel&project-name=smart-scheduling&repository-name=smart-scheduling)
+
+**79 automated tests** · **1,000-task schedule in ~0.6 s** · **p95 API latency < 27 ms** · **0 double-bookings by construction**
 
 <img src="docs/screenshots/dashboard.png" alt="Dashboard with daily briefing, top priorities and capacity" width="900">
 
@@ -85,7 +87,7 @@ flowchart TB
 > - Designed deadline-aware prioritization (deadline propagation + a lateness-minimizing repair pass) and feasibility analysis that quantifies capacity shortfalls and recommends scope, deadline or capacity changes.
 > - Guaranteed conflict-free schedules with optimistic concurrency (stale commits → 409), transactional commits, and a PostgreSQL exclusion constraint that makes overlapping bookings impossible.
 > - Integrated AI task extraction and daily briefings with dual schema validation (Pydantic + Zod), per-item rejection of invalid output, consent-gated external calls and grounding checks.
-> - Delivered async reminders and risk alerts via BullMQ workers and real-time updates via Socket.IO; covered by 76 automated tests plus a Playwright E2E journey, running in Docker Compose with CI.
+> - Delivered async reminders and risk alerts via BullMQ workers and real-time updates via Socket.IO; covered by 79 automated tests plus a Playwright E2E journey, running in Docker Compose with CI.
 
 ---
 
@@ -139,6 +141,38 @@ npm run dev
 ```
 
 Without `REDIS_URL`, background jobs are disabled and everything else still works. With `INLINE_WORKER=true`, the BullMQ workers run inside the API process. In production, run them separately (`npm run worker`), as `docker-compose.yml` does.
+
+## ☁️ Deploy to Vercel
+
+The repo is set up for **Vercel Services** (`vercel.json` at the root): the frontend, the Express API and the FastAPI AI service deploy together as one project.
+
+| Path | Service |
+|---|---|
+| `/api/*` | `backend/` (Express; Vercel serves the app exported from `src/app.ts`) |
+| `/_ai/*` | `ai-service/` (FastAPI; `main.py`), protected by `AI_SERVICE_TOKEN` |
+| everything else | `frontend/` (Vite static build, SPA fallback) |
+
+**Set it up once, and every push deploys automatically:**
+
+1. Create a Postgres database (e.g. [Neon](https://neon.tech) or [Supabase](https://supabase.com); the migrations need the `btree_gist` extension, which both support).
+2. Click **Deploy with Vercel** above (or *Add New → Project* and import this repo). Set the Framework Preset to **Services** if Vercel asks, and leave the Root Directory empty.
+3. Add these environment variables (Production, and Preview if you want previews):
+
+   | Variable | Value |
+   |---|---|
+   | `DATABASE_URL` | Your Postgres connection string (use the pooled URL if your provider offers one) |
+   | `JWT_SECRET` | A long random string, e.g. `openssl rand -base64 48` |
+   | `AI_SERVICE_TOKEN` | Another random string; the backend and AI service both read it |
+   | `REDIS_URL` | *Optional*, e.g. Upstash. Without it, background jobs are off |
+   | `AI_PROVIDER`, `ANTHROPIC_API_KEY` | *Optional*, to enable Claude (users must still opt in) |
+
+4. Deploy. The backend's `vercel-build` script runs `prisma migrate deploy` first, so the schema is created automatically.
+
+After that, **every push to `main` deploys to production and every other branch gets a preview URL**, through Vercel's GitHub integration. To load demo data into the hosted database, run `DATABASE_URL=… npm run db:seed` from `backend/`.
+
+**What differs from the Docker deployment.** Vercel runs the API as serverless functions, so there is no WebSocket server and no long-running BullMQ worker. The app detects this through `GET /api/v1/meta`: it skips live updates and relies on normal refetching, and reminders, daily-plan and risk-alert jobs don't run. Everything else (scheduling, replanning, calendar, analytics, AI drafts) works the same. For live updates and background jobs, use `docker compose` or a host with long-running processes (Render, Railway, Fly.io).
+
+> Preview deployments protected by Vercel Authentication can block the backend's server-to-server call to `/_ai`. AI extraction then falls back to the manual flow. Production deployments are unaffected.
 
 ---
 
@@ -282,11 +316,11 @@ Example (built-in parser):
 ## Testing
 
 ```bash
-cd backend && npm test            # 51 tests: engine unit tests + API integration tests + worker jobs (needs Postgres)
+cd backend && npm test            # 52 tests: engine unit tests + API integration tests + worker jobs (needs Postgres)
 ```
 
 ```bash
-cd ai-service && python -m pytest # 25 tests: parsing, extraction, validation, fallbacks, grounding
+cd ai-service && pip install -r requirements-dev.txt && python -m pytest  # 27 tests: parsing, extraction, validation, fallbacks, grounding
 ```
 
 ```bash
@@ -331,6 +365,7 @@ smart-scheduling/
 │   ├── src/middleware/      auth, validation (zod), errors
 │   ├── src/queues/ workers/ BullMQ queues and jobs
 │   ├── src/realtime/        Socket.IO + Redis relay
+│   ├── src/app.ts · main.ts Express app (serverless entry) · long-running server
 │   ├── prisma/              schema, migrations (incl. exclusion constraint), seed
 │   ├── scripts/             benchmark.ts, latency.ts
 │   └── tests/               unit/ (engine) and integration/ (API, workers)
@@ -340,6 +375,7 @@ smart-scheduling/
 │   │                        projects, project detail, planning, analytics, settings
 │   ├── src/features/        tasks (detail panel), projects (Gantt), scheduling, analytics
 │   └── e2e/smoke.mjs        browser journey
+├── vercel.json              Vercel Services: frontend + API + AI service
 ├── docker-compose.yml       postgres, redis, ai-service, backend, worker, frontend (nginx)
 ├── .github/workflows/ci.yml
 └── .env.example

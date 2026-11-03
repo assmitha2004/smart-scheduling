@@ -1,3 +1,7 @@
+/**
+ * Long-running server (Docker, local dev): HTTP + Socket.IO + optional
+ * in-process BullMQ workers. On Vercel, `src/app.ts` is used instead.
+ */
 import http from 'node:http';
 import { createApp } from './app.js';
 import { config } from './config.js';

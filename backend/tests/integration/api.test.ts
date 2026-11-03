@@ -388,3 +388,13 @@ describe('AI task extraction (Scenario F)', () => {
     expect(res.body.error.details.fallback).toBe('manual');
   });
 });
+
+describe('serverless entrypoint', () => {
+  it('serves the API from the default export without a WebSocket server', async () => {
+    const { default: serverlessApp } = await import('../../src/app.js');
+    const meta = await request(serverlessApp).get('/api/v1/meta').expect(200);
+    expect(meta.body).toEqual({ realtime: false, backgroundJobs: false });
+    const u = await registerUser();
+    await request(serverlessApp).get('/api/v1/users/me').set(u.auth).expect(200);
+  });
+});

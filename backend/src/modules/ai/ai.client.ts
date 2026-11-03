@@ -12,7 +12,10 @@ async function call<T extends z.ZodType>(path: string, body: unknown, schema: T)
   try {
     res = await fetch(`${config.aiServiceUrl}${path}`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: {
+        'content-type': 'application/json',
+        ...(config.aiServiceToken ? { 'x-internal-token': config.aiServiceToken } : {}),
+      },
       body: JSON.stringify(body),
       signal: AbortSignal.timeout(config.aiServiceTimeoutMs),
     });

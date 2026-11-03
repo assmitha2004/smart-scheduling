@@ -22,4 +22,4 @@ COPY package.json ./
 # The prisma CLI is a runtime dependency so migrations run offline at start-up.
 EXPOSE 4000
 USER node
-CMD ["sh", "-c", "npx prisma migrate deploy && node dist/server.js"]
+CMD ["sh", "-c", "npx prisma migrate deploy && node dist/main.js"]

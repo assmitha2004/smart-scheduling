@@ -20,6 +20,11 @@ export type RealtimeEvent =
 let io: Server | null = null;
 let publisher: Redis | null = null;
 
+/** True only in the long-running server (src/main.ts); false on serverless. */
+export function isRealtimeEnabled(): boolean {
+  return io !== null;
+}
+
 export function initRealtime(server: HttpServer): Server {
   io = new Server(server, { cors: { origin: config.corsOrigin, credentials: true } });
   io.use((socket, next) => {

@@ -3,13 +3,20 @@
 POST /extract-tasks  - free text -> validated draft tasks + dependencies
 POST /daily-briefing - engine facts -> readable briefing text
 GET  /health
+
+Every route is also served under /_ai, which is how the Vercel deployment
+routes to this service. If AI_SERVICE_TOKEN is set, calls must send it in
+the x-internal-token header (the backend does), so the public route can't
+be used by anyone else.
 """
 from __future__ import annotations
 
+import hmac
 import logging
+import os
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from fastapi import FastAPI, HTTPException
+from fastapi import APIRouter, Depends, FastAPI, Header, HTTPException
 
 from . import llm
 from .daily_briefing import make_briefing
@@ -18,14 +25,21 @@ from .task_extraction import extract_tasks
 
 logging.basicConfig(level=logging.INFO)
 app = FastAPI(title="Smart Scheduling AI service", version="1.0.0")
+router = APIRouter()
 
 
-@app.get("/health")
+def require_internal_token(x_internal_token: str | None = Header(default=None)) -> None:
+    expected = os.environ.get("AI_SERVICE_TOKEN")
+    if expected and not (x_internal_token and hmac.compare_digest(x_internal_token, expected)):
+        raise HTTPException(status_code=401, detail="Invalid internal token")
+
+
+@router.get("/health")
 def health() -> dict:
     return {"status": "ok", "externalProvider": "anthropic" if llm.available() else None, "model": llm.MODEL if llm.available() else None}
 
 
-@app.post("/extract-tasks", response_model=ExtractResponse)
+@router.post("/extract-tasks", response_model=ExtractResponse, dependencies=[Depends(require_internal_token)])
 def extract(req: ExtractRequest) -> ExtractResponse:
     try:
         ZoneInfo(req.timezone)
@@ -34,6 +48,10 @@ def extract(req: ExtractRequest) -> ExtractResponse:
     return extract_tasks(req)
 
 
-@app.post("/daily-briefing", response_model=BriefingResponse)
+@router.post("/daily-briefing", response_model=BriefingResponse, dependencies=[Depends(require_internal_token)])
 def briefing(req: BriefingRequest) -> BriefingResponse:
     return make_briefing(req)
+
+
+app.include_router(router)
+app.include_router(router, prefix="/_ai")
