@@ -19,7 +19,7 @@
     "benchmark": "tsx scripts/benchmark.ts",
     "latency": "tsx scripts/latency.ts",
     "postinstall": "prisma generate",
-    "vercel-build": "prisma migrate deploy && rm -rf dist && esbuild src/app.ts --bundle --platform=node --format=esm --target=node22 --packages=external --outfile=dist/app.mjs"
+    "vercel-build": "prisma generate && prisma migrate deploy && rm -rf dist && esbuild src/app.ts --bundle --platform=node --format=esm --target=node22 --packages=external --outfile=dist/app.mjs"
   },
   "prisma": {
     "seed": "tsx prisma/seed.ts"

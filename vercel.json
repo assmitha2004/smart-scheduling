@@ -9,7 +9,7 @@
       "root": "backend",
       "framework": "express",
       "buildCommand": "npm run vercel-build",
-      "entrypoint": "dist/app.mjs"
+      "entrypoint": "vercel-entry.mjs"
     },
     "frontend": {
       "root": "frontend",
