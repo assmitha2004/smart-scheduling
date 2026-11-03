@@ -7,7 +7,9 @@
     },
     "backend": {
       "root": "backend",
-      "framework": "express"
+      "framework": "express",
+      "buildCommand": "npm run vercel-build",
+      "entrypoint": "dist/app.mjs"
     },
     "frontend": {
       "root": "frontend",
