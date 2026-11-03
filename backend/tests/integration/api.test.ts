@@ -328,7 +328,7 @@ describe('AI task extraction (Scenario F)', () => {
   let server: http.Server;
   let reply: unknown = {};
   beforeAll(async () => {
-    server = http.createServer((req, res) => {
+    server = http.createServer((_req, res) => {
       res.setHeader('content-type', 'application/json');
       res.end(JSON.stringify(reply));
     });

@@ -10,7 +10,16 @@
     "resolveJsonModule": true,
     "outDir": "dist",
     "rootDir": ".",
-    "types": ["node"]
+    "types": [
+      "node"
+    ],
+    "noUnusedLocals": true,
+    "noUnusedParameters": true
   },
-  "include": ["src", "tests", "scripts", "prisma"]
+  "include": [
+    "src",
+    "tests",
+    "scripts",
+    "prisma"
+  ]
 }

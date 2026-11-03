@@ -4,7 +4,7 @@ import { prisma } from '../../db.js';
 import { parse } from '../../middleware/validate.js';
 import { currentUser } from '../../middleware/auth.js';
 import { badRequest, conflict, notFound } from '../../utils/errors.js';
-import { expandAvailability, overlaps, formatInstant } from '../../engine/index.js';
+import { expandAvailability, formatInstant } from '../../engine/index.js';
 import { logActivity } from '../activity/activity.service.js';
 import { emitToUser } from '../../realtime/socket.js';
 import { scheduleBlockReminders } from '../../queues/index.js';
