@@ -1,22 +1,95 @@
-# Smart Scheduling
+<div align="center">
 
-**AI-assisted, dependency-aware planning.** Smart Scheduling turns projects, tasks, estimates and dependencies into a realistic plan that fits your real calendar. It flags deadline risk early, explains every recommendation, and re-plans with a before/after preview when something slips.
+# 🗓️ Smart Scheduling
 
-The scheduling engine is deterministic and fully tested. AI only drafts tasks and rephrases briefings, and the user approves everything.
+### AI-assisted, dependency-aware planning platform
 
-```
-React + TypeScript (Vite, Tailwind, FullCalendar, custom SVG Gantt)
-        │  REST /api/v1 + Socket.IO
-Node.js + Express + TypeScript ──── Scheduling engine (DAG · CPM · interval allocation · replan)
-        │            │
-   PostgreSQL     Redis + BullMQ workers (reminders, daily plan, deadline-risk sweeps)
-   (Prisma)          │
-              Python FastAPI AI service ── built-in parser (default) / Claude (opt-in)
-```
+Turns projects, tasks, estimates and dependencies into a **realistic plan that fits your real calendar**, flags deadline risk early, explains every recommendation, and re-plans with a before/after preview when something slips.
+
+![TypeScript](https://img.shields.io/badge/TypeScript-3178C6?logo=typescript&logoColor=white)
+![React](https://img.shields.io/badge/React-20232A?logo=react&logoColor=61DAFB)
+![Node.js](https://img.shields.io/badge/Node.js-339933?logo=node.js&logoColor=white)
+![Express](https://img.shields.io/badge/Express-000000?logo=express&logoColor=white)
+![PostgreSQL](https://img.shields.io/badge/PostgreSQL-4169E1?logo=postgresql&logoColor=white)
+![Prisma](https://img.shields.io/badge/Prisma-2D3748?logo=prisma&logoColor=white)
+![Redis](https://img.shields.io/badge/Redis%20%2B%20BullMQ-DC382D?logo=redis&logoColor=white)
+![Python](https://img.shields.io/badge/FastAPI-009688?logo=fastapi&logoColor=white)
+![Tailwind](https://img.shields.io/badge/Tailwind_CSS-06B6D4?logo=tailwindcss&logoColor=white)
+![Docker](https://img.shields.io/badge/Docker-2496ED?logo=docker&logoColor=white)
+
+**76 automated tests** · **1,000-task schedule in ~0.6 s** · **p95 API latency < 27 ms** · **0 double-bookings by construction**
+
+<img src="docs/screenshots/dashboard.png" alt="Dashboard with daily briefing, top priorities and capacity" width="900">
+
+</div>
 
 ---
 
-## Quick start
+## ✨ Highlights
+
+- **A real scheduling engine, not a to-do list.** Dependency graph (DAG) with cycle detection, topological ordering, **Critical Path Method**, interval arithmetic over working hours and fixed events, and greedy list scheduling into focus blocks. It is a pure, deterministic TypeScript module with its own unit tests.
+- **Deadline intelligence.** Urgency propagates *backwards* through dependencies, so prerequisites of urgent work aren't starved. A **deadline-repair pass** re-orders work only when it strictly reduces total lateness. Feasibility analysis says *how short* you are and offers concrete options: cut X hours, move the deadline to a date, add N min/day.
+- **Explainable by design.** Every placement comes with its reasons, e.g. *"high priority (+45) · needed for 'Deployment', due in 10 days (+12) · on the critical path (+20) · blocks 4 tasks (+24)"*.
+- **Safe under concurrency.** Optimistic versioning rejects stale commits from a second browser tab (409). A **PostgreSQL exclusion constraint** (`btree_gist` over `tstzrange`) makes overlapping blocks impossible even under races. A per-workspace advisory lock prevents concurrent requests from creating a dependency cycle together.
+- **Preview → approve, always.** Nothing touches the calendar without approval. Replanning after a delay moves only the affected downstream tasks and shows a before/after diff with the finish-date shift.
+- **AI with guardrails.** Natural language → *draft* tasks with dependencies, schema-validated twice (Pydantic + Zod) and rejected item by item. A built-in parser runs by default; Claude is opt-in per user. AI briefings are grounding-checked against engine data.
+- **Production plumbing.** JWT with rotating refresh tokens, role-based workspace access, BullMQ workers (reminders, daily plan at local hour, risk alerts, quiet hours), Socket.IO live updates relayed through Redis, Docker Compose, and GitHub Actions CI.
+
+## 📸 Screenshots
+
+| Smart planning: preview with explanations | Replan after a delay: before/after impact |
+|---|---|
+| <img src="docs/screenshots/smart-planning.png" alt="Schedule preview" width="440"> | <img src="docs/screenshots/replan.png" alt="Replan diff" width="440"> |
+| **Gantt timeline: critical path, dependencies** | **Calendar: tasks around fixed events** |
+| <img src="docs/screenshots/timeline.png" alt="Timeline" width="440"> | <img src="docs/screenshots/calendar.png" alt="Calendar" width="440"> |
+| **AI drafts tasks from text: you confirm** | **Analytics & deadline feasibility** |
+| <img src="docs/screenshots/ai-drafts.png" alt="AI drafts" width="440"> | <img src="docs/screenshots/analytics.png" alt="Analytics" width="440"> |
+| **Task details: dependencies, suggestions, activity** | **Dark mode** |
+| <img src="docs/screenshots/task-panel.png" alt="Task panel" width="440"> | <img src="docs/screenshots/dashboard-dark.png" alt="Dark mode" width="440"> |
+
+## 🧱 Tech stack
+
+| Layer | Technology |
+|---|---|
+| Frontend | React 19, TypeScript, Vite, Tailwind CSS v4, TanStack Query, FullCalendar, custom SVG Gantt chart |
+| Backend | Node.js 22, Express 5, TypeScript, Zod validation, JWT auth |
+| Scheduling engine | Pure TypeScript: DAG, topological sort, CPM, interval allocation, Luxon for timezones/DST |
+| Data | PostgreSQL 16 via Prisma (migrations, exclusion + check constraints, JSONB) |
+| Async & real-time | Redis, BullMQ workers, Socket.IO |
+| AI service | Python, FastAPI, Pydantic; Anthropic Claude (structured outputs, opt-in) |
+| Quality & delivery | Vitest, Supertest, Pytest, Playwright E2E, Docker Compose, nginx, GitHub Actions |
+
+## 🏗️ Architecture
+
+```mermaid
+flowchart TB
+  UI["React + TypeScript<br/>dashboard · calendar · Gantt · planning"] -->|"REST /api/v1"| API
+  UI <-->|Socket.IO| API
+  subgraph API["Node.js + Express API (modular monolith)"]
+    ENG["Scheduling engine<br/>DAG · CPM · allocation · replan · feasibility"]
+  end
+  API --> PG[("PostgreSQL<br/>Prisma")]
+  API --> RD[("Redis")]
+  RD --> WK["BullMQ workers<br/>reminders · daily plan · risk alerts"]
+  WK -->|"events via Redis pub/sub"| API
+  API -->|"validated JSON"| AI["FastAPI AI service<br/>built-in parser · Claude (opt-in)"]
+```
+
+## 📄 Resume bullets
+
+> **Smart Scheduling: AI-Assisted, Dependency-Aware Planning Platform**
+> *React, TypeScript, Node.js, Express, PostgreSQL, Prisma, Redis/BullMQ, Socket.IO, Python, FastAPI, Docker*
+>
+> - Built a full-stack scheduling platform with an interactive calendar, a Gantt-style timeline, task dependencies and per-user working hours across timezones.
+> - Engineered a deterministic scheduling engine using DAG cycle detection, topological sorting, the Critical Path Method and interval allocation. It schedules 1,000 interdependent tasks in ~0.6 s, and every benchmark schedule passed an independent check of all constraints.
+> - Designed deadline-aware prioritization (deadline propagation + a lateness-minimizing repair pass) and feasibility analysis that quantifies capacity shortfalls and recommends scope, deadline or capacity changes.
+> - Guaranteed conflict-free schedules with optimistic concurrency (stale commits → 409), transactional commits, and a PostgreSQL exclusion constraint that makes overlapping bookings impossible.
+> - Integrated AI task extraction and daily briefings with dual schema validation (Pydantic + Zod), per-item rejection of invalid output, consent-gated external calls and grounding checks.
+> - Delivered async reminders and risk alerts via BullMQ workers and real-time updates via Socket.IO; covered by 76 automated tests plus a Playwright E2E journey, running in Docker Compose with CI.
+
+---
+
+## 🚀 Quick start
 
 ### Option A: Docker (everything)
 

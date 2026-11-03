@@ -150,6 +150,13 @@ export function SchedulePreviewView({ preview, onDone, onRegenerate }: { preview
   );
 }
 
+/** First start → last end; the end shows its date when it falls on another day. */
+function fmtSpan(bs: { startAt: string; endAt: string }[], tz: string): string {
+  const start = bs[0].startAt;
+  const end = bs[bs.length - 1].endAt;
+  return `${fmtDateTime(start, tz)} → ${dayKey(start, tz) === dayKey(end, tz) ? fmtTime(end, tz) : fmtDateTime(end, tz)}`;
+}
+
 /** Calendar shift: minutes/hours, or days once it exceeds a day. */
 function fmtShift(m: number): string {
   return m >= 1440 ? `${Math.round((m / 1440) * 10) / 10} days` : fmtMinutes(m);
@@ -178,8 +185,8 @@ function ReplanImpact({ preview, tz }: { preview: ReplanPreview; tz: string }) {
           {changed.map((d) => (
             <tr key={d.taskId} className="border-t border-border">
               <td className="py-1.5 pr-2 font-medium">{d.title}</td>
-              <td className="pr-2 text-muted">{d.before.length ? `${fmtDateTime(d.before[0].startAt, tz)} → ${fmtTime(d.before[d.before.length - 1].endAt, tz)}` : '—'}</td>
-              <td className="pr-2">{d.after.length ? `${fmtDateTime(d.after[0].startAt, tz)} → ${fmtTime(d.after[d.after.length - 1].endAt, tz)}` : 'not scheduled'}</td>
+              <td className="pr-2 text-muted">{d.before.length ? `${fmtSpan(d.before, tz)}` : '—'}</td>
+              <td className="pr-2">{d.after.length ? `${fmtSpan(d.after, tz)}` : 'not scheduled'}</td>
               <td><Badge tone={d.change === 'REMOVED' ? 'danger' : d.change === 'ADDED' ? 'accent' : (d.finishShiftMinutes ?? 0) > 0 ? 'warn' : 'ok'}>{d.change.toLowerCase()}{d.finishShiftMinutes ? ` ${d.finishShiftMinutes > 0 ? '+' : '−'}${fmtShift(Math.abs(d.finishShiftMinutes))}` : ''}</Badge></td>
             </tr>
           ))}
