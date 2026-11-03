@@ -6,3 +6,6 @@ dist/
 __pycache__/
 .pytest_cache/
 frontend/e2e/screenshots/
+
+# Local Redis snapshots
+dump.rdb
