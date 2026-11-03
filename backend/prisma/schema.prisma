@@ -52,6 +52,8 @@ enum CalendarEventType {
 enum EventSource {
   MANUAL
   IMPORTED
+  /// Routine events created by "Plan my time"; replaced when it is re-run.
+  PLANNER
 }
 
 enum BlockStatus {
@@ -85,6 +87,10 @@ model User {
   notificationPrefs   Json     @default("{}") @map("notification_prefs")
   /// Explicit consent to send task text to an external AI provider.
   aiExternalConsent   Boolean  @default(false) @map("ai_external_consent")
+  /// "STUDENT", "WORK" or "HYBRID" (work + study); chosen during onboarding.
+  persona             String?
+  /// Answers from the "Plan my time" questions, so they can be edited and re-run.
+  lifeProfile         Json     @default("{}") @map("life_profile")
   createdAt           DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt           DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
 

@@ -8,6 +8,17 @@ import { Badge, Button, Card, Empty, ErrorBox, Loading, PageHeader, RiskBadge, S
 import { fmtDateTime, fmtMinutes, fmtTime, relativeDays } from '../lib/format';
 import type { Briefing, CalendarData } from '../types';
 import { useTaskPanel } from '../features/tasks/TaskPanel';
+import { PersonaWidgets } from '../features/planner/PersonaWidgets';
+import { PERSONAS } from '../features/planner/templates';
+
+const GREETING_LINES = [
+  'Small steps every day add up 🌱',
+  'You’ve got this 💪',
+  'One task at a time ✨',
+  'Progress, not perfection 🌈',
+  'Let’s make today count 🚀',
+  'Breaks are part of the plan ☕',
+];
 
 export default function Dashboard() {
   const { user } = useAuth();
@@ -35,8 +46,28 @@ export default function Dashboard() {
 
   return (
     <>
-      <PageHeader title={`Good ${today.hour < 12 ? 'morning' : today.hour < 18 ? 'afternoon' : 'evening'}, ${user?.name.split(' ')[0]}`} subtitle={today.toFormat('cccc d LLLL')}
-        actions={<Link to="/app/planning"><Button>Build my schedule</Button></Link>} />
+      <PageHeader title={`${today.hour < 12 ? 'Good morning' : today.hour < 18 ? 'Good afternoon' : 'Good evening'}, ${user?.name.split(' ')[0]} ${today.hour < 12 ? '☀️' : today.hour < 18 ? '🌤️' : '🌙'}`}
+        subtitle={<>{today.toFormat('cccc d LLLL')} · {GREETING_LINES[today.ordinal % GREETING_LINES.length]}</>}
+        actions={
+          <div className="flex flex-wrap gap-2">
+            <Link to="/app/plan?horizon=DAY"><Button>📅 Plan my day</Button></Link>
+            <Link to="/app/plan?horizon=WEEK"><Button variant="secondary">🗓️ Week</Button></Link>
+            <Link to="/app/plan?horizon=MONTH"><Button variant="secondary">🌙 Month</Button></Link>
+          </div>
+        } />
+
+      {!user?.persona && (
+        <Card className="mb-5 border-accent/30 bg-accent-soft/40">
+          <div className="flex flex-wrap items-center gap-3">
+            <span className="text-3xl" aria-hidden>🦉</span>
+            <div className="min-w-0 flex-1">
+              <p className="font-semibold">Let Tempo plan your time</p>
+              <p className="text-sm text-muted">Tell me if you're a {PERSONAS.map((p) => `${p.emoji} ${p.title.toLowerCase()}`).join(', ')} person and I'll build your days around classes, work and life.</p>
+            </div>
+            <Link to="/app/plan"><Button>Start →</Button></Link>
+          </div>
+        </Card>
+      )}
 
       <Card className="mb-5 border-accent/30 bg-accent-soft/40">
         <div className="flex flex-wrap items-start justify-between gap-3">
@@ -63,8 +94,10 @@ export default function Dashboard() {
         <Stat label="Deadlines at risk" value={b.atRisk.length} tone={b.atRisk.length ? 'danger' : 'ok'} sub={`${b.unscheduledWork.length} unscheduled task(s)`} />
       </div>
 
+      <PersonaWidgets calendar={calendar.data} focusLeft={b.capacity.availableMinutesToday} />
+
       {nothing ? (
-        <Empty title="Your plan is empty">Create a project and some tasks, then build your schedule. <Link className="text-accent" to="/app/projects">Go to projects →</Link></Empty>
+        <Empty title="Your plan is empty 🌱">Answer a few questions and Tempo will fill it with a smart schedule. <Link className="text-accent" to="/app/plan">Plan my time →</Link></Empty>
       ) : (
         <div className="grid gap-5 lg:grid-cols-3">
           <div className="space-y-5 lg:col-span-2">
@@ -90,7 +123,7 @@ export default function Dashboard() {
               )}
             </Card>
             <Card title="Today's schedule" action={<Link to="/app/calendar" className="text-xs text-accent">Open calendar</Link>}>
-              {calendar.isLoading ? <Loading /> : !agenda.length ? <p className="text-sm text-muted">Nothing on your calendar today. Accept a schedule in Smart planning to fill it.</p> : (
+              {calendar.isLoading ? <Loading /> : !agenda.length ? <p className="text-sm text-muted">Nothing on your calendar today. Tap “Plan my day” and I'll fill it in ✨</p> : (
                 <ul className="space-y-1.5">
                   {agenda.map((a) => (
                     <li key={a.id} onClick={() => a.taskId && openTask(a.taskId)} className={`flex items-center gap-3 rounded-lg px-2 py-1.5 text-sm ${a.taskId ? 'cursor-pointer hover:bg-surface-2' : ''} ${a.done ? 'opacity-50 line-through' : ''}`}>

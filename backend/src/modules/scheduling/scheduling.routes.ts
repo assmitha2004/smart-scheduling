@@ -8,8 +8,10 @@ import { commitRecommendation, dismissRecommendation, previewReplan, previewSche
 export const schedulesRouter = Router();
 
 /** POST /schedules/preview — generate a proposed schedule (nothing is saved to the calendar). */
+const previewSchema = z.object({ horizon: z.enum(['DAY', 'WEEK', 'MONTH']).optional() });
 schedulesRouter.post('/preview', async (req, res) => {
-  res.json(await previewSchedule(currentUser(req).id));
+  const { horizon } = parse(previewSchema, req.body ?? {});
+  res.json(await previewSchedule(currentUser(req).id, Date.now(), horizon));
 });
 
 const commitSchema = z.object({

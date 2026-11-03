@@ -411,7 +411,7 @@ function scheduleOnce(input: ScheduleInput, prep: Prepared, boosts: Map<string, 
           ? {
               taskId: id,
               code: 'INSUFFICIENT_CAPACITY',
-              reason: `Needs ${Math.round(need / MINUTE)} min but only ${capacity} min of free time remain in the ${opts.horizonDays}-day planning window after its earliest start.`,
+              reason: `Needs ${Math.round(need / MINUTE)} min but only ${capacity} min of free time remain in the ${opts.horizonDays < 1 ? 'rest-of-today' : `${Math.round(opts.horizonDays)}-day`} planning window after its earliest start.`,
             }
           : {
               taskId: id,

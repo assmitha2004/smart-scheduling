@@ -2,6 +2,7 @@ import { createContext, useCallback, useContext, useEffect, useState, type React
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api, apiError } from '../../services/api';
 import { useAuth } from '../../services/auth';
+import { useCelebrate } from '../../components/Celebrate';
 import { useToast } from '../../components/Toast';
 import { Badge, Button, ErrorBox, Field, Input, Loading, Modal, PriorityBadge, Select, StatusBadge, Textarea } from '../../components/ui';
 import { fmtDateTime, fmtMinutes, fromLocalInput, toLocalInput } from '../../lib/format';
@@ -42,6 +43,7 @@ function TaskPanel({ taskId, onClose }: { taskId: string; onClose: () => void })
   const tz = user?.timezone ?? 'UTC';
   const qc = useQueryClient();
   const toast = useToast();
+  const { celebrate } = useCelebrate();
   const [error, setError] = useState<string | null>(null);
   const [replanSuggested, setReplanSuggested] = useState(false);
   const [delayOpen, setDelayOpen] = useState(false);
@@ -73,7 +75,12 @@ function TaskPanel({ taskId, onClose }: { taskId: string; onClose: () => void })
 
   const save = useMutation({
     mutationFn: async (patch: Partial<Task>) => (await api.patch(`/tasks/${taskId}`, { ...patch, version: detail.data!.task.version })).data,
-    onSuccess: (d) => { setError(null); if (d.replanSuggested) setReplanSuggested(true); refresh(); },
+    onSuccess: (d, patch) => {
+      setError(null);
+      if (d.replanSuggested) setReplanSuggested(true);
+      if (patch.status === 'DONE' && detail.data?.task.status !== 'DONE') celebrate({ title: detail.data?.task.title });
+      refresh();
+    },
     onError: (e) => { const err = apiError(e); setError(err.message); if (err.code === 'STALE_TASK') refresh(); },
   });
   const addDep = useMutation({

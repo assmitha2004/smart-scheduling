@@ -37,6 +37,25 @@ Turns projects, tasks, estimates and dependencies into a **realistic plan that f
 - **AI with guardrails.** Natural language → *draft* tasks with dependencies, schema-validated twice (Pydantic + Zod) and rejected item by item. A built-in parser runs by default; Claude is opt-in per user. AI briefings are grounding-checked against engine data.
 - **Production plumbing.** JWT with rotating refresh tokens, role-based workspace access, BullMQ workers (reminders, daily plan at local hour, risk alerts, quiet hours), Socket.IO live updates relayed through Redis, Docker Compose, and GitHub Actions CI.
 
+## 🦉 Plan my time (students, workers, or both)
+
+New users pick **🎒 Student**, **💼 Working** or **🎓 Work + study**, and Tempo, a friendly planning assistant, asks a few tappable questions:
+
+| Everyone | Students | Workers |
+|---|---|---|
+| Plan for **today, this week or this month** · wake/sleep times · energy pattern (🐦 early bird, ☀️ daytime, 🦉 night owl) · focus style (🍅 30 / ⏱️ 50 / 🎧 90 min) · meals · activities · days off · habits | Class timetable + commute · subjects with difficulty · exams · assignments · daily study goal | Work days & hours + commute · recurring meetings · work tasks with priority and due date |
+
+`backend/src/planner/lifePlan.ts` (pure, unit-tested) turns the answers into:
+
+- **A weekly routine** of fixed events (classes, work, meetings, meals, commute, activities) the engine never schedules over.
+- **Focus windows** for tasks. Study time is picked from free time to match the energy pattern and daily goal (+20% headroom); work tasks go inside work hours; habits get a personal window. Packed days are called out.
+- **Smart tasks**: spaced-repetition exam revision (3-5 sessions by difficulty, chained, compressed when the exam is close), assignments ≥ 3h split into research → draft → polish, weekly subject reviews, work tasks (overdue = urgent), daily habits.
+- **Friendly insights** explaining every choice (and a nudge if sleep is under 7h).
+
+A dry run shows a "week at a glance" preview before anything is saved; re-running replaces the planner's routine events and not-yet-started tasks. Then **Plan my day / week / month** runs the scheduling engine over that horizon (`POST /schedules/preview { horizon }`) for the usual preview → approve flow.
+
+Extras: 🎉 confetti and a cheerful message when a task is completed, a Pomodoro-style focus timer, a completion streak, an exam countdown (students), meetings & focus summary (workers), a work/study balance meter (both), and a daily tip.
+
 ## 📸 Screenshots
 
 | Smart planning: preview with explanations | Replan after a delay: before/after impact |

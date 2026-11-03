@@ -23,6 +23,7 @@ export function serializeUser(u: User) {
     quietHoursEnd: u.quietHoursEnd,
     notificationPrefs: resolvePrefs(u.notificationPrefs),
     aiExternalConsent: u.aiExternalConsent,
+    persona: u.persona,
     createdAt: u.createdAt.toISOString(),
   };
 }
@@ -41,6 +42,7 @@ const profileSchema = z.object({
   quietHoursStart: hm.nullable().optional(),
   quietHoursEnd: hm.nullable().optional(),
   aiExternalConsent: z.boolean().optional(),
+  persona: z.enum(['STUDENT', 'WORK', 'HYBRID']).nullable().optional(),
   notificationPrefs: z
     .object({
       taskReminders: z.boolean(),

@@ -24,6 +24,49 @@ export interface User {
   quietHoursEnd: string | null;
   notificationPrefs: NotificationPrefs;
   aiExternalConsent: boolean;
+  persona: Persona | null;
+}
+
+export type Persona = 'STUDENT' | 'WORK' | 'HYBRID';
+export type Chronotype = 'EARLY_BIRD' | 'DAYTIME' | 'NIGHT_OWL';
+export type Horizon = 'DAY' | 'WEEK' | 'MONTH';
+
+/** A weekly commitment, e.g. "Physics, Mon/Wed 10:00-11:30". Weekdays: 0 = Sunday. */
+export interface WeeklySlot { title: string; weekdays: number[]; start: string; end: string }
+
+/** Answers to the "Plan my time" questions (mirrors the backend's answersSchema). */
+export interface LifeAnswers {
+  persona: Persona;
+  horizon: Horizon;
+  wakeTime: string;
+  sleepTime: string;
+  chronotype: Chronotype;
+  focusMinutes: number;
+  meals: { breakfast?: string | null; lunch?: string | null; dinner?: string | null };
+  commuteMinutes: number;
+  daysOff: number[];
+  activities: WeeklySlot[];
+  habits: { title: string; minutes: number; weekdays: number[] }[];
+  classes: WeeklySlot[];
+  subjects: { name: string; difficulty: 1 | 2 | 3 }[];
+  exams: { subject: string; date: string }[];
+  assignments: { title: string; dueDate: string; hours: number }[];
+  studyHoursPerDay: number;
+  workDays: number[];
+  workStart: string;
+  workEnd: string;
+  meetings: WeeklySlot[];
+  workTasks: { title: string; hours: number; dueDate?: string | null; priority: Priority }[];
+}
+
+export interface LifePlan {
+  routine: { title: string; weekday: number; start: string; end: string; kind: 'CLASS' | 'WORK' | 'MEETING' | 'ACTIVITY' | 'MEAL' | 'COMMUTE'; eventType: 'FIXED' | 'BREAK' }[];
+  availability: { weekday: number; startTime: string; endTime: string }[];
+  tasks: { key: string; title: string; project: 'study' | 'work' | 'personal'; estimatedMinutes: number; priority: Priority; dueAt: string | null; kind: string }[];
+  focusBlockMinutes: number;
+  horizonDays: number;
+  insights: string[];
+  stats: { availableMinutesPerWeek: number; plannedTaskMinutes: number; studyDays: number; sleepHours: number };
 }
 
 export interface Workspace { id: string; name: string; role: string; projectCount: number; memberCount: number }

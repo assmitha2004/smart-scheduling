@@ -13,6 +13,7 @@ const CalendarPage = lazy(() => import('./pages/CalendarPage'));
 import ProjectsPage from './pages/ProjectsPage';
 import ProjectDetail from './pages/ProjectDetail';
 import PlanningPage from './pages/PlanningPage';
+import PlanMyTime from './pages/PlanMyTime';
 import AnalyticsPage from './pages/AnalyticsPage';
 import SettingsPage from './pages/SettingsPage';
 
@@ -38,6 +39,7 @@ export default function App() {
         <Route path="calendar" element={<Suspense fallback={<Loading />}><CalendarPage /></Suspense>} />
         <Route path="projects" element={<ProjectsPage />} />
         <Route path="projects/:id" element={<ProjectDetail />} />
+        <Route path="plan" element={<PlanMyTime />} />
         <Route path="planning" element={<PlanningPage />} />
         <Route path="analytics" element={<AnalyticsPage />} />
         <Route path="settings" element={<SettingsPage />} />

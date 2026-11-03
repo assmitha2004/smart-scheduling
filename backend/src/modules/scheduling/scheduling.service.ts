@@ -1,4 +1,5 @@
 import type { Prisma, Task, User } from '@prisma/client';
+import { DateTime } from 'luxon';
 import { prisma } from '../../db.js';
 import { config } from '../../config.js';
 import {
@@ -66,11 +67,25 @@ export function toEngineTask(t: Task): EngineTask {
  * completed prerequisites, teammates' prerequisites (as external
  * constraints), availability, fixed events and in-progress blocks.
  */
-export async function loadScheduleContext(userId: string, now = Date.now()): Promise<ScheduleContext> {
+export type PlanHorizon = 'DAY' | 'WEEK' | 'MONTH';
+
+/** Planning window in days: the rest of today, 7 days, 30 days, or the configured default. */
+export function horizonDaysFor(horizon: PlanHorizon | undefined, now: number, timezone: string): number {
+  if (horizon === 'DAY') {
+    const endOfDay = DateTime.fromMillis(now, { zone: timezone }).endOf('day').toMillis();
+    return Math.max(1 / 24, (endOfDay - now) / 86_400_000);
+  }
+  if (horizon === 'WEEK') return 7;
+  if (horizon === 'MONTH') return 30;
+  return config.planningHorizonDays;
+}
+
+export async function loadScheduleContext(userId: string, now = Date.now(), horizon?: PlanHorizon): Promise<ScheduleContext> {
   const user = await prisma.user.findUnique({ where: { id: userId }, include: { availabilityRules: true } });
   if (!user) throw notFound('User');
   const workspaceIds = await userWorkspaceIds(userId);
-  const horizonEnd = new Date(now + config.planningHorizonDays * 86_400_000);
+  const horizonDays = horizonDaysFor(horizon, now, user.timezone);
+  const horizonEnd = new Date(now + horizonDays * 86_400_000);
   const projectSelect = { select: { id: true, name: true, color: true, workspaceId: true } } as const;
 
   const scopeWhere: Prisma.TaskWhereInput = {
@@ -158,7 +173,7 @@ export async function loadScheduleContext(userId: string, now = Date.now()): Pro
         allowSplitting: user.allowTaskSplitting,
         maxBlockMinutes: user.focusBlockMinutes,
         minBlockMinutes: Math.min(30, user.focusBlockMinutes),
-        horizonDays: config.planningHorizonDays,
+        horizonDays,
       },
     },
   };
@@ -236,13 +251,13 @@ async function storeRecommendation(
 }
 
 /** POST /schedules/preview — runs the engine and stores a pending recommendation. */
-export async function previewSchedule(userId: string, now = Date.now()) {
-  const ctx = await loadScheduleContext(userId, now);
+export async function previewSchedule(userId: string, now = Date.now(), horizon?: PlanHorizon) {
+  const ctx = await loadScheduleContext(userId, now, horizon);
   const result = generateSchedule(ctx.input);
   const risks = computeRisks(ctx, result.ok ? result : undefined);
   let recommendationId: string | null = null;
   if (result.ok) {
-    const rec = await storeRecommendation(userId, ctx.user.scheduleVersion, 'SCHEDULE_PREVIEW', 'Full schedule generated on request', {
+    const rec = await storeRecommendation(userId, ctx.user.scheduleVersion, 'SCHEDULE_PREVIEW', horizon ? `Schedule for ${{ DAY: 'today', WEEK: 'the next week', MONTH: 'the next month' }[horizon]}` : 'Full schedule generated on request', {
       kind: 'preview',
       blocks: result.proposedBlocks.map((b) => ({ taskId: b.taskId, startAt: b.startAt, endAt: b.endAt })),
     });

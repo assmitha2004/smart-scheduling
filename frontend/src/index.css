@@ -81,3 +81,33 @@ body { background: var(--c-bg); color: var(--c-fg); font-family: var(--font-sans
 /* Chart series (validated: CVD ΔE 24.7 light / passes dark against the app surfaces) */
 :root { --series-1: #2a78d6; --series-2: #eb6834; }
 @media (prefers-color-scheme: dark) { :root { --series-1: #3987e5; --series-2: #d95926; } }
+
+/* ---------- Plan my time & celebrations ---------- */
+.focus-window {
+  background: repeating-linear-gradient(135deg, color-mix(in srgb, var(--c-accent) 22%, transparent) 0 6px, color-mix(in srgb, var(--c-accent) 10%, transparent) 6px 12px);
+  border-top: 1px solid color-mix(in srgb, var(--c-accent) 45%, transparent);
+  border-bottom: 1px solid color-mix(in srgb, var(--c-accent) 45%, transparent);
+}
+.wizard-step { animation: step-in 0.35s ease-out both; }
+@keyframes step-in { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+.tempo-bob { animation: bob 3s ease-in-out infinite; }
+@keyframes bob { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-3px); } }
+
+.confetti { position: absolute; inset: 0; overflow: hidden; }
+.confetti span {
+  position: absolute; top: -12px; width: 8px; height: 14px; border-radius: 2px; opacity: 0.9;
+  animation-name: confetti-fall; animation-timing-function: cubic-bezier(0.3, 0.6, 0.6, 1); animation-fill-mode: forwards;
+}
+@keyframes confetti-fall {
+  0% { transform: translateY(0) rotate(0); opacity: 1; }
+  100% { transform: translateY(105vh) rotate(540deg); opacity: 0.2; }
+}
+.celebrate-pop { animation: pop 0.45s cubic-bezier(0.2, 1.4, 0.5, 1) both; }
+@keyframes pop { from { opacity: 0; transform: scale(0.7); } to { opacity: 1; transform: scale(1); } }
+.celebrate-emoji { animation: wiggle 0.9s ease-in-out 0.3s 2; display: inline-block; }
+@keyframes wiggle { 0%, 100% { transform: rotate(0); } 25% { transform: rotate(-14deg) scale(1.1); } 75% { transform: rotate(14deg) scale(1.1); } }
+
+@media (prefers-reduced-motion: reduce) {
+  .wizard-step, .tempo-bob, .celebrate-pop, .celebrate-emoji { animation: none; }
+  .confetti { display: none; }
+}

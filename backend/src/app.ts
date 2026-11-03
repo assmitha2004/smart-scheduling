@@ -18,6 +18,7 @@ import { briefingsRouter } from './modules/briefings/briefings.routes.js';
 import { analyticsRouter } from './modules/analytics/analytics.routes.js';
 import { notificationsRouter } from './modules/notifications/notifications.routes.js';
 import { aiRouter } from './modules/ai/ai.routes.js';
+import { plannerRouter } from './modules/planner/planner.routes.js';
 
 export function createApp() {
   const app = express();
@@ -42,29 +43,6 @@ export function createApp() {
   v1.get('/meta', (_req, res) => {
     res.json({ realtime: isRealtimeEnabled(), backgroundJobs: !!config.redisUrl });
   });
-  // TEMPORARY deployment diagnostic: runs one query and reports the exact error.
-  // Requires ?key=<AI_SERVICE_TOKEN>. Remove once the Vercel deployment works.
-  v1.get('/meta/db-check', async (req, res) => {
-    if (!config.aiServiceToken || req.query.key !== config.aiServiceToken) {
-      res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Not found' } });
-      return;
-    }
-    const started = Date.now();
-    try {
-      const users = await prisma.user.count();
-      res.json({ ok: true, users, ms: Date.now() - started, node: process.version, platform: process.platform });
-    } catch (err) {
-      const e = err as Error & { code?: string; errorCode?: string };
-      res.status(500).json({
-        ok: false,
-        ms: Date.now() - started,
-        node: process.version,
-        name: e?.name,
-        code: e?.code ?? e?.errorCode,
-        message: String(e?.message ?? err).slice(0, 3000),
-      });
-    }
-  });
   v1.use('/auth', authRouter);
   v1.use(requireAuth);
   v1.use('/users', usersRouter);
@@ -78,6 +56,7 @@ export function createApp() {
   v1.use('/analytics', analyticsRouter);
   v1.use('/notifications', notificationsRouter);
   v1.use('/ai', aiRouter);
+  v1.use('/planner', plannerRouter);
   app.use('/api/v1', v1);
 
   app.use(notFoundHandler);
