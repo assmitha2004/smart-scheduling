@@ -8,7 +8,6 @@ import { badRequest, notFound } from '../../utils/errors.js';
 import { isValidTimezone } from '../../utils/time.js';
 import { resolvePrefs } from '../notifications/notifications.service.js';
 import { emitToUser } from '../../realtime/socket.js';
-import { billingSummary } from '../../billing/plans.js';
 
 export function serializeUser(u: User) {
   return {
@@ -25,7 +24,6 @@ export function serializeUser(u: User) {
     notificationPrefs: resolvePrefs(u.notificationPrefs),
     aiExternalConsent: u.aiExternalConsent,
     persona: u.persona,
-    billing: billingSummary(u),
     calendarFeedEnabled: !!u.calendarFeedToken,
     createdAt: u.createdAt.toISOString(),
   };

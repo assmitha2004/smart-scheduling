@@ -19,7 +19,6 @@ import { analyticsRouter } from './modules/analytics/analytics.routes.js';
 import { notificationsRouter } from './modules/notifications/notifications.routes.js';
 import { aiRouter } from './modules/ai/ai.routes.js';
 import { plannerRouter } from './modules/planner/planner.routes.js';
-import { billingRouter } from './modules/billing/billing.routes.js';
 import { accountRouter } from './modules/account/account.routes.js';
 import { feedSettingsRouter, publicFeedRouter } from './modules/calendar/feed.routes.js';
 import { progressRouter } from './modules/progress/progress.routes.js';
@@ -63,7 +62,6 @@ export function createApp() {
   v1.use('/notifications', notificationsRouter);
   v1.use('/ai', aiRouter);
   v1.use('/planner', plannerRouter);
-  v1.use('/billing', billingRouter);
   v1.use('/account', accountRouter);
   v1.use('/calendar-feed', feedSettingsRouter);
   v1.use('/progress', progressRouter);

@@ -15,7 +15,7 @@ import ProjectDetail from './pages/ProjectDetail';
 import PlanningPage from './pages/PlanningPage';
 import PlanMyTime from './pages/PlanMyTime';
 import WeeklyReview from './pages/WeeklyReview';
-import { PricingPage, PrivacyPage, TermsPage } from './pages/Public';
+import { PrivacyPage, TermsPage } from './pages/Public';
 import AnalyticsPage from './pages/AnalyticsPage';
 import SettingsPage from './pages/SettingsPage';
 
@@ -35,7 +35,6 @@ export default function App() {
       <Route path="/" element={user ? <Navigate to="/app" replace /> : <Landing />} />
       <Route path="/login" element={<AuthPage mode="login" />} />
       <Route path="/register" element={<AuthPage mode="register" />} />
-      <Route path="/pricing" element={<PricingPage />} />
       <Route path="/terms" element={<TermsPage />} />
       <Route path="/privacy" element={<PrivacyPage />} />
       <Route path="/onboarding" element={<RequireAuth allowUnonboarded><Onboarding /></RequireAuth>} />

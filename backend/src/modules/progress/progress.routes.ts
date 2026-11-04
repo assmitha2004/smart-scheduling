@@ -3,12 +3,11 @@ import { prisma } from '../../db.js';
 import { currentUser } from '../../middleware/auth.js';
 import { notFound } from '../../utils/errors.js';
 import { userWorkspaceIds } from '../access.js';
-import { can } from '../../billing/plans.js';
 import { computeProgress } from '../../progress/progress.js';
 
 export const progressRouter = Router();
 
-/** GET /progress — XP, level, streak and badges; the weekly review needs Pro. */
+/** GET /progress — XP, level, streak, badges and the weekly review. */
 progressRouter.get('/', async (req, res) => {
   const me = currentUser(req);
   const user = await prisma.user.findUnique({ where: { id: me.id } });
@@ -32,6 +31,5 @@ progressRouter.get('/', async (req, res) => {
     tz: user.timezone,
     now,
   });
-  const weeklyReview = can(user, 'WEEKLY_REVIEW', now);
-  res.json({ ...progress, week: weeklyReview ? progress.week : null, weeklyReviewLocked: !weeklyReview });
+  res.json(progress);
 });

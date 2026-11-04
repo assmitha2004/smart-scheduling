@@ -4,7 +4,6 @@ import { prisma } from '../../db.js';
 import { currentUser } from '../../middleware/auth.js';
 import { notFound } from '../../utils/errors.js';
 import { buildIcs, type IcsEvent } from '../../utils/ics.js';
-import { can, requireFeature } from '../../billing/plans.js';
 
 const PAST_DAYS = 7;
 const FUTURE_DAYS = 60;
@@ -23,7 +22,6 @@ feedSettingsRouter.get('/', async (req, res) => {
 feedSettingsRouter.post('/', async (req, res) => {
   const user = await prisma.user.findUnique({ where: { id: currentUser(req).id } });
   if (!user) throw notFound('User');
-  requireFeature(user, 'CALENDAR_SYNC');
   const token = crypto.randomBytes(24).toString('base64url');
   await prisma.user.update({ where: { id: user.id }, data: { calendarFeedToken: token } });
   res.json({ enabled: true, path: feedPath(token) });
@@ -43,7 +41,7 @@ export const publicFeedRouter = Router();
 publicFeedRouter.get('/:file', async (req, res) => {
   const token = req.params.file.replace(/\.ics$/, '');
   const user = token.length >= 20 ? await prisma.user.findUnique({ where: { calendarFeedToken: token } }) : null;
-  if (!user || !can(user, 'CALENDAR_SYNC')) {
+  if (!user) {
     res.status(404).type('text/plain').send('Calendar feed not found');
     return;
   }

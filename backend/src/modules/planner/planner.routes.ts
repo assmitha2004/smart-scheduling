@@ -9,7 +9,6 @@ import { emitToUser } from '../../realtime/socket.js';
 import { serializeUser } from '../users/users.routes.js';
 import { buildLifePlan, expandRoutine, PROJECTS, type LifeAnswers, type ProjectKey } from '../../planner/lifePlan.js';
 import { answersSchema } from '../../planner/answers.schema.js';
-import { requireFeature } from '../../billing/plans.js';
 
 export const plannerRouter = Router();
 
@@ -40,7 +39,6 @@ plannerRouter.post('/setup', async (req, res) => {
   const user = await prisma.user.findUnique({ where: { id: me.id } });
   if (!user) throw notFound('User');
   const now = Date.now();
-  if (answers.horizon === 'MONTH') requireFeature(user, 'MONTH_PLANNING', now);
   const plan = buildLifePlan(answers as LifeAnswers, { now, tz: user.timezone });
   if (!plan.availability.length) {
     throw badRequest('There is no free time left in your week for tasks. Try fewer days off, a later bedtime or fewer fixed commitments.');

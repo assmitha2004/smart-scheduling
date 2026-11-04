@@ -38,7 +38,7 @@ export default function AuthPage({ mode }: { mode: 'login' | 'register' }) {
         <Link to="/" className="mb-8 flex justify-center"><Logo /></Link>
         <form onSubmit={submit} className="space-y-4 rounded-xl border border-border bg-surface p-6">
           <h1 className="text-lg font-semibold">{mode === 'login' ? 'Welcome back 👋' : 'Create your account'}</h1>
-          {mode === 'register' && <p className="-mt-2 text-sm text-muted">Free forever, with a 14-day Pro trial included ✨</p>}
+          {mode === 'register' && <p className="-mt-2 text-sm text-muted">Free to use, with every feature included ✨</p>}
           {error && <ErrorBox message={error} />}
           {mode === 'register' && <Field label="Name"><Input value={name} onChange={(e) => setName(e.target.value)} required autoComplete="name" /></Field>}
           <Field label="Email"><Input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required autoComplete="email" /></Field>

@@ -1,38 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import { DateTime } from 'luxon';
-import { billingSummary, can, effectivePlan, requireFeature, trialDaysLeft } from '../../src/billing/plans.js';
 import { buildIcs, foldLine, icsDate, icsEscape } from '../../src/utils/ics.js';
 import { computeProgress, levelFor, taskXp, xpForLevel, type DoneTask } from '../../src/progress/progress.js';
-import { AppError } from '../../src/utils/errors.js';
 
-const NOW = Date.parse('2026-11-04T06:00:00Z'); // Wednesday 11:30 in Kolkata
 const day = 86_400_000;
-
-describe('plans & entitlements', () => {
-  it('free users cannot use Pro features; trials and Pro can', () => {
-    const free = { plan: 'FREE', trialEndsAt: null };
-    const trial = { plan: 'FREE', trialEndsAt: new Date(NOW + 3.5 * day) };
-    const expired = { plan: 'FREE', trialEndsAt: new Date(NOW - day) };
-    const pro = { plan: 'PRO', trialEndsAt: null };
-    expect(can(free, 'MONTH_PLANNING', NOW)).toBe(false);
-    expect(can(trial, 'MONTH_PLANNING', NOW)).toBe(true);
-    expect(can(expired, 'CALENDAR_SYNC', NOW)).toBe(false);
-    expect(can(pro, 'TEAM_INVITES', NOW)).toBe(true);
-    expect(effectivePlan(trial, NOW)).toBe('PRO');
-    expect(trialDaysLeft(trial, NOW)).toBe(4);
-    expect(billingSummary(expired, NOW)).toMatchObject({ plan: 'FREE', effectivePlan: 'FREE', trialing: false, trialDaysLeft: 0, features: [] });
-  });
-
-  it('throws a friendly 403 UPGRADE_REQUIRED error', () => {
-    try {
-      requireFeature({ plan: 'FREE', trialEndsAt: null }, 'WEEKLY_REVIEW', NOW);
-      expect.unreachable();
-    } catch (e) {
-      expect(e).toBeInstanceOf(AppError);
-      expect(e).toMatchObject({ status: 403, code: 'UPGRADE_REQUIRED', details: { feature: 'WEEKLY_REVIEW' } });
-    }
-  });
-});
+const NOW = Date.parse('2026-11-04T06:00:00Z'); // Wednesday 11:30 in Kolkata
 
 describe('iCalendar feed', () => {
   it('formats UTC times and escapes text', () => {

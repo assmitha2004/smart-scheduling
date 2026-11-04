@@ -1,7 +1,6 @@
 import { useEffect, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import { Logo } from '../components/Layout';
-import { PricingCards } from '../features/billing/Pricing';
 
 const REPO = 'https://github.com/assmitha2004/smart-scheduling';
 
@@ -16,7 +15,6 @@ export function MarketingShell({ children, title }: { children: ReactNode; title
           <Link to="/" aria-label="Smart Scheduling home"><Logo /></Link>
           <nav className="flex items-center gap-1 text-sm">
             <a href="/#features" className="hidden rounded-lg px-3 py-2 text-muted hover:text-fg sm:block">Features</a>
-            <Link to="/pricing" className="hidden rounded-lg px-3 py-2 text-muted hover:text-fg sm:block">Pricing</Link>
             <Link to="/login" className="rounded-lg px-3 py-2 text-muted hover:text-fg">Log in</Link>
             <Link to="/register" className="rounded-lg bg-accent px-3.5 py-2 font-medium text-accent-fg">Get started</Link>
           </nav>
@@ -27,7 +25,6 @@ export function MarketingShell({ children, title }: { children: ReactNode; title
         <div className="mx-auto flex max-w-6xl flex-col gap-4 px-4 py-8 text-sm text-muted sm:flex-row sm:items-center sm:justify-between sm:px-6">
           <div className="flex items-center gap-3"><Logo /><span>Plan smarter, stress less.</span></div>
           <nav className="flex flex-wrap gap-4">
-            <Link to="/pricing" className="hover:text-fg">Pricing</Link>
             <Link to="/terms" className="hover:text-fg">Terms</Link>
             <Link to="/privacy" className="hover:text-fg">Privacy</Link>
             <a href={REPO} target="_blank" rel="noreferrer" className="hover:text-fg">GitHub</a>
@@ -40,10 +37,10 @@ export function MarketingShell({ children, title }: { children: ReactNode; title
 }
 
 export const FAQ = [
-  { q: 'Is it really free?', a: 'Yes. Planning your days and weeks, the smart engine, the calendar, focus timer, streaks and badges are free forever. Pro adds month planning, calendar sync, weekly reviews and team workspaces, and every account gets a 14-day Pro trial with no card.' },
+  { q: 'Is it free?', a: 'Yes. Every feature is included: planning your day, week or month, the smart engine, calendar sync, the weekly review, focus timer, streaks and badges.' },
   { q: 'How does it decide when I should study or work?', a: 'You tell it your routine (classes, work hours, meals, commute, days off), when your brain is sharpest and your goals. It blocks out your fixed commitments, finds focus windows that match your energy, then places tasks by deadline, priority and what depends on what. Every placement comes with a reason.' },
   { q: 'What happens when I fall behind?', a: 'Mark a task as delayed and only the work that depends on it moves. You see a before/after preview and approve it. If there simply isn’t enough time, it tells you by how much and suggests options instead of cramming.' },
-  { q: 'Does it work on my phone?', a: 'Yes. It works in any browser, you can install it to your home screen like an app, and Pro syncs your plan into Google Calendar or Apple Calendar.' },
+  { q: 'Does it work on my phone?', a: 'Yes. It works in any browser, you can install it to your home screen like an app, and you can sync your plan into Google Calendar or Apple Calendar.' },
   { q: 'Is my data private?', a: 'Your schedule is only visible to you (and teammates you invite). Task text is only sent to an AI provider if you switch that on. You can download all your data or delete your account at any time from Settings.' },
   { q: 'I work and study. Will it handle both?', a: 'That’s exactly what the Work + study mode is for: work shifts are fixed, study goes into the time around them, and a balance meter shows how your week splits between the two.' },
 ];
@@ -60,22 +57,6 @@ export function FaqList() {
         </details>
       ))}
     </div>
-  );
-}
-
-export function PricingPage() {
-  return (
-    <MarketingShell title="Pricing">
-      <section className="mx-auto max-w-4xl px-4 py-14 sm:px-6">
-        <div className="mb-10 text-center">
-          <h1 className="text-4xl font-semibold tracking-tight">Simple pricing</h1>
-          <p className="mt-3 text-lg text-muted">Start free. Try every Pro feature for 14 days, no card needed.</p>
-        </div>
-        <PricingCards />
-        <h2 className="mb-4 mt-16 text-2xl font-semibold">Questions</h2>
-        <FaqList />
-      </section>
-    </MarketingShell>
   );
 }
 
@@ -100,7 +81,7 @@ export function TermsPage() {
     <LegalPage title="Terms of Service" updated="4 November 2026">
       <Section h="1. The service">Smart Scheduling helps you plan your time. It suggests schedules based on what you tell it; you decide what to accept. Suggestions are guidance, not guarantees that work will be finished on time.</Section>
       <Section h="2. Your account">You need an account to use the app. Keep your password safe and tell us if you think someone else has used your account. You must be old enough to agree to these terms where you live, or have a parent or guardian’s permission.</Section>
-      <Section h="3. Plans and trials">The Free plan is free. Pro features are available during a one-time 14-day trial and on a paid Pro plan. When a trial ends you move to Free automatically; nothing is charged unless you choose to upgrade. You can cancel Pro at any time in Settings and keep all your data.</Section>
+      <Section h="3. Cost">Smart Scheduling is free to use. If that ever changes, we’ll tell you in advance and you’ll always be able to export your data.</Section>
       <Section h="4. Your content">Your tasks, plans and notes belong to you. You give us permission to store and process them only to run the service for you. You can export or delete them at any time.</Section>
       <Section h="5. Acceptable use">Don’t misuse the service: no attempts to break security, overload the system, access other people’s data or use it for anything unlawful.</Section>
       <Section h="6. Availability and changes">We work to keep the service running but can’t promise it will never be interrupted. We may update features and these terms; for important changes we’ll let you know in the app.</Section>

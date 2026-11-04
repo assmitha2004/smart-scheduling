@@ -25,18 +25,7 @@ export interface User {
   notificationPrefs: NotificationPrefs;
   aiExternalConsent: boolean;
   persona: Persona | null;
-  billing: Billing;
   calendarFeedEnabled: boolean;
-}
-
-export type Feature = 'MONTH_PLANNING' | 'CALENDAR_SYNC' | 'WEEKLY_REVIEW' | 'TEAM_INVITES';
-export interface Billing {
-  plan: 'FREE' | 'PRO';
-  effectivePlan: 'FREE' | 'PRO';
-  trialing: boolean;
-  trialEndsAt: string | null;
-  trialDaysLeft: number;
-  features: Feature[];
 }
 
 export interface Badge { id: string; emoji: string; title: string; description: string; earnedAt: string | null }
@@ -62,8 +51,7 @@ export interface Progress {
   doneToday: number;
   totalDone: number;
   badges: Badge[];
-  week: { current: WeekSummary; previous: WeekSummary; message: string; badgesEarned: string[] } | null;
-  weeklyReviewLocked: boolean;
+  week: { current: WeekSummary; previous: WeekSummary; message: string; badgesEarned: string[] };
 }
 
 export type Persona = 'STUDENT' | 'WORK' | 'HYBRID';

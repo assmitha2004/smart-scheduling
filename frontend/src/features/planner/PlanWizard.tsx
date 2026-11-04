@@ -7,7 +7,6 @@ import type { LifeAnswers, LifePlan, Priority, User } from '../../types';
 import { ChoiceCard, Chip, DayChips, ListEditor, SlotList, Tempo, TimeInput } from './controls';
 import { ACTIVITY_IDEAS, CHRONOTYPES, FOCUS_STYLES, HABIT_IDEAS, MEETING_IDEAS, PERSONAS, SUBJECT_IDEAS, studies, works } from './templates';
 import { WeekGlance } from './WeekGlance';
-import { usePlan } from '../billing/plan';
 
 export interface PlannerResult {
   plan: LifePlan;
@@ -62,7 +61,6 @@ export function PlanWizard({ initial, onApplied, onCancel, intro }: { initial: L
   const [plan, setPlan] = useState<LifePlan | null>(null);
   const [busy, setBusy] = useState(false);
   const [customSubject, setCustomSubject] = useState('');
-  const monthOk = usePlan().has('MONTH_PLANNING');
   const set = (patch: Partial<LifeAnswers>) => { setA((x) => ({ ...x, ...patch })); setPlan(null); };
   const p = a.persona;
   const persona = PERSONAS.find((x) => x.id === p)!;
@@ -78,7 +76,7 @@ export function PlanWizard({ initial, onApplied, onCancel, intro }: { initial: L
         <div className="flex flex-col gap-3 sm:flex-row">
           <ChoiceCard selected={a.horizon === 'DAY'} onClick={() => set({ horizon: 'DAY' })} emoji="📅" title="Just today" blurb="Make the most of today" />
           <ChoiceCard selected={a.horizon === 'WEEK'} onClick={() => set({ horizon: 'WEEK' })} emoji="🗓️" title="This week" blurb="The sweet spot for most people" />
-          <ChoiceCard selected={a.horizon === 'MONTH'} onClick={() => monthOk ? set({ horizon: 'MONTH' }) : setError('Planning a whole month is a Pro feature. Start your free trial in Settings → Plan, or pick today / this week for now 🙂')} emoji="🌙" title={monthOk ? 'This month' : 'This month 🔒'} blurb={monthOk ? 'Big picture: exams, projects' : 'Pro: exam seasons & big projects'} />
+          <ChoiceCard selected={a.horizon === 'MONTH'} onClick={() => set({ horizon: 'MONTH' })} emoji="🌙" title="This month" blurb="Big picture: exams, projects" />
         </div>
       ),
     });
@@ -340,7 +338,7 @@ export function PlanWizard({ initial, onApplied, onCancel, intro }: { initial: L
     });
     return s;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [a, plan, customSubject, p, monthOk]);
+  }, [a, plan, customSubject, p]);
 
   const step = steps[Math.min(i, steps.length - 1)];
   const isReview = step.id === 'review';

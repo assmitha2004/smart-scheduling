@@ -8,12 +8,10 @@ import { useToast } from '../components/Toast';
 import { Badge, Button, Card, ErrorBox, Field, Input, PageHeader, Select } from '../components/ui';
 import { AvailabilityEditor, validateRules } from '../features/scheduling/AvailabilityEditor';
 import type { AvailabilityRule, User, Workspace } from '../types';
-import { AccountTab, IntegrationsTab, PlanTab } from '../features/settings/SettingsTabs';
-import { ProBadge, usePlan } from '../features/billing/plan';
+import { AccountTab, IntegrationsTab } from '../features/settings/SettingsTabs';
 
 const TABS = [
   { id: 'profile', label: '👤 Profile & planning' },
-  { id: 'plan', label: '✨ Plan' },
   { id: 'integrations', label: '🔗 Calendar & app' },
   { id: 'account', label: '🔒 Account' },
 ] as const;
@@ -34,7 +32,6 @@ export default function SettingsPage() {
         ))}
       </nav>
       {tab === 'profile' && <ProfileTab />}
-      {tab === 'plan' && <PlanTab />}
       {tab === 'integrations' && <IntegrationsTab />}
       {tab === 'account' && <AccountTab />}
     </>
@@ -116,7 +113,6 @@ function ProfileTab() {
 
 function Members() {
   const qc = useQueryClient();
-  const plan = usePlan();
   const ws = useQuery({ queryKey: ['workspaces'], queryFn: async () => (await api.get<{ workspaces: Workspace[] }>('/workspaces')).data.workspaces });
   const w = ws.data?.[0];
   const members = useQuery({ queryKey: ['members', w?.id], enabled: !!w, queryFn: async () => (await api.get<{ members: { id: string; name: string; email: string; role: string }[] }>(`/workspaces/${w!.id}/members`)).data.members });
@@ -132,10 +128,7 @@ function Members() {
         {members.data?.map((m) => <li key={m.id} className="flex justify-between py-2"><span>{m.name} <span className="text-muted">{m.email}</span></span><Badge>{m.role.toLowerCase()}</Badge></li>)}
       </ul>
       {invite.error && <div className="mb-2"><ErrorBox message={apiError(invite.error).message} /></div>}
-      {(w.role === 'OWNER' || w.role === 'ADMIN') && !plan.has('TEAM_INVITES') && (
-        <p className="flex items-center gap-2 text-sm text-muted"><ProBadge /> Inviting teammates is part of Pro. <a className="text-accent" href="/app/settings?tab=plan">See plans</a></p>
-      )}
-      {(w.role === 'OWNER' || w.role === 'ADMIN') && plan.has('TEAM_INVITES') && (
+      {(w.role === 'OWNER' || w.role === 'ADMIN') && (
         <form className="flex gap-2" onSubmit={(e) => { e.preventDefault(); invite.mutate(); }}>
           <Input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="teammate@example.com (must have an account)" aria-label="Member email" />
           <Button type="submit" variant="secondary" disabled={!email}>Add member</Button>

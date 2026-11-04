@@ -19,7 +19,7 @@ Turns projects, tasks, estimates and dependencies into a **realistic plan that f
 
 [![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https%3A%2F%2Fgithub.com%2Fassmitha2004%2Fsmart-scheduling&env=DATABASE_URL,JWT_SECRET,AI_SERVICE_TOKEN&envDescription=Postgres%20connection%20string%2C%20a%20long%20random%20JWT%20secret%2C%20and%20a%20random%20token%20shared%20with%20the%20AI%20service&envLink=https%3A%2F%2Fgithub.com%2Fassmitha2004%2Fsmart-scheduling%23%EF%B8%8F-deploy-to-vercel&project-name=smart-scheduling&repository-name=smart-scheduling)
 
-**102 automated tests** · **1,000-task schedule in ~0.6 s** · **p95 API latency < 27 ms** · **0 double-bookings by construction**
+**100 automated tests** · **1,000-task schedule in ~0.6 s** · **p95 API latency < 27 ms** · **0 double-bookings by construction**
 
 <img src="docs/screenshots/dashboard.png" alt="Dashboard with daily briefing, top priorities and capacity" width="900">
 
@@ -62,8 +62,8 @@ Smart Scheduling is built like a commercial SaaS, not just a demo:
 
 | Area | What's there |
 |---|---|
-| **Plans & entitlements** | Free and Pro plans. Every new account gets a **14-day Pro trial, no card**. Pro features (month planning, calendar sync, weekly review, team invites) are enforced **on the server** (`backend/src/billing/plans.ts` → `requireFeature`, `403 UPGRADE_REQUIRED`), with friendly upsell cards in the UI and a trial banner. Card checkout is behind a `PAYMENTS_ENABLED` flag and not connected yet. |
-| **Marketing site** | Landing page with persona tabs (students, professionals, work + study), how-it-works, features, pricing and FAQ; `/pricing`, `/terms`, `/privacy`; SEO and Open Graph tags. |
+| **Everything free** | No plans, trials or paywalls: every feature is available to every account. |
+| **Marketing site** | Landing page with persona tabs (students, professionals, work + study), how-it-works, features and FAQ; `/terms` and `/privacy`; SEO and Open Graph tags. |
 | **Calendar sync** | Private iCalendar feed (`/api/v1/feed/<secret>.ics`, RFC 5545 with escaping and line folding) for Google Calendar, Apple Calendar and Outlook. Rotate or revoke the secret link any time. |
 | **Installable app (PWA)** | Web manifest, icons (incl. maskable), app shortcuts and a service worker (network-first pages, cached immutable assets, never caches the API). |
 | **Account & privacy** | Change password (signs out other devices), download all your data as JSON, delete your account (password + typed confirmation). |
@@ -119,7 +119,7 @@ flowchart TB
 > - Designed deadline-aware prioritization (deadline propagation + a lateness-minimizing repair pass) and feasibility analysis that quantifies capacity shortfalls and recommends scope, deadline or capacity changes.
 > - Guaranteed conflict-free schedules with optimistic concurrency (stale commits → 409), transactional commits, and a PostgreSQL exclusion constraint that makes overlapping bookings impossible.
 > - Integrated AI task extraction and daily briefings with dual schema validation (Pydantic + Zod), per-item rejection of invalid output, consent-gated external calls and grounding checks.
-> - Delivered async reminders and risk alerts via BullMQ workers and real-time updates via Socket.IO; covered by 79 automated tests plus a Playwright E2E journey, running in Docker Compose with CI.
+> - Delivered async reminders and risk alerts via BullMQ workers and real-time updates via Socket.IO; covered by 100 automated tests plus a Playwright E2E journey, running in Docker Compose with CI.
 
 ---
 

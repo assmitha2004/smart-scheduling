@@ -5,7 +5,6 @@ import { useAuth } from '../services/auth';
 import { NotificationsBell } from './NotificationsBell';
 import { useRealtime } from '../hooks/useRealtime';
 import { LevelChip, ProgressWatcher } from '../features/progress/progress';
-import { TrialBanner } from '../features/billing/plan';
 
 const NAV = [
   { to: '/app', label: 'Dashboard', icon: 'M3 12l9-9 9 9M5 10v10h14V10', end: true },
@@ -57,7 +56,6 @@ export function Layout() {
       </aside>
       <ProgressWatcher />
       <div className="flex min-w-0 flex-1 flex-col">
-        <TrialBanner />
         <header className="sticky top-0 z-30 flex items-center justify-between border-b border-border bg-surface/90 px-4 py-2 backdrop-blur md:justify-end">
           <button className="rounded p-2 text-muted md:hidden" onClick={() => setMobileOpen((o) => !o)} aria-label="Menu">☰</button>
           <div className="md:hidden"><Logo /></div>

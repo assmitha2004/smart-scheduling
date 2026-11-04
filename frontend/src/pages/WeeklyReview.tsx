@@ -5,7 +5,6 @@ import { useAuth } from '../services/auth';
 import { Card, ErrorBox, Loading, PageHeader, Stat } from '../components/ui';
 import { fmtMinutes } from '../lib/format';
 import { BadgeGrid, useProgress } from '../features/progress/progress';
-import { ProGate } from '../features/billing/plan';
 import type { WeekSummary } from '../types';
 
 function delta(cur: number, prev: number, unit = '') {
@@ -63,7 +62,6 @@ export default function WeeklyReview() {
 
       <h2 className="mb-3 text-lg font-semibold">📊 Weekly review</h2>
       <div className="mb-6">
-        <ProGate feature="WEEKLY_REVIEW">
           {p.week && (
             <div className="space-y-5">
               <Card className="bg-ok-soft/40"><p className="text-[15px]">💬 {p.week.message}</p></Card>
@@ -93,7 +91,6 @@ export default function WeeklyReview() {
               </div>
             </div>
           )}
-        </ProGate>
       </div>
 
       <h2 className="mb-3 text-lg font-semibold">🎖️ Badges · {earned}/{p.badges.length}</h2>

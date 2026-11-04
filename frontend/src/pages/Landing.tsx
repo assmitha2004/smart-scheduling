@@ -2,7 +2,6 @@ import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import clsx from 'clsx';
 import { FaqList, MarketingShell } from './Public';
-import { PricingCards } from '../features/billing/Pricing';
 import type { Persona } from '../types';
 
 const PERSONA_TABS: { id: Persona; emoji: string; label: string; headline: string; points: string[]; insight: string }[] = [
@@ -99,7 +98,7 @@ export default function Landing() {
             <Link to="/register" className="rounded-xl bg-accent px-6 py-3.5 font-semibold text-accent-fg shadow-lg shadow-accent/25 hover:opacity-95">Plan my week, free →</Link>
             <a href="#how" className="rounded-xl border border-border bg-surface px-6 py-3.5 font-medium hover:bg-surface-2">See how it works</a>
           </div>
-          <p className="mt-4 text-sm text-muted">Free forever plan · 14-day Pro trial · no card needed</p>
+          <p className="mt-4 text-sm text-muted">Free · every feature included · works on any device</p>
         </div>
         <HeroPreview />
       </section>
@@ -162,13 +161,7 @@ export default function Landing() {
         </div>
       </section>
 
-      <section className="mx-auto max-w-4xl px-4 py-16 sm:px-6">
-        <h2 className="text-center text-3xl font-semibold tracking-tight">Simple pricing</h2>
-        <p className="mb-10 mt-3 text-center text-muted">Start free. Try every Pro feature for 14 days.</p>
-        <PricingCards />
-      </section>
-
-      <section className="mx-auto max-w-3xl px-4 pb-16 sm:px-6">
+      <section className="mx-auto max-w-3xl px-4 py-16 sm:px-6">
         <h2 className="mb-6 text-center text-3xl font-semibold tracking-tight">Questions</h2>
         <FaqList />
       </section>
@@ -177,7 +170,7 @@ export default function Landing() {
         <div className="mx-auto max-w-4xl rounded-3xl bg-gradient-to-br from-indigo-600 to-fuchsia-600 px-6 py-12 text-center text-white shadow-xl">
           <h2 className="text-3xl font-bold tracking-tight">Ready to get your time back?</h2>
           <p className="mx-auto mt-3 max-w-xl text-white/85">Two minutes of questions. A week that finally makes sense.</p>
-          <Link to="/register" className="mt-8 inline-block rounded-xl bg-white px-6 py-3.5 font-semibold text-indigo-700 hover:bg-white/90">Start planning free →</Link>
+          <Link to="/register" className="mt-8 inline-block rounded-xl bg-white px-6 py-3.5 font-semibold text-indigo-700 hover:bg-white/90">Start planning →</Link>
         </div>
       </section>
     </MarketingShell>

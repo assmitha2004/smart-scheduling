@@ -91,9 +91,6 @@ model User {
   persona             String?
   /// Answers from the "Plan my time" questions, so they can be edited and re-run.
   lifeProfile         Json     @default("{}") @map("life_profile")
-  /// Billing plan: "FREE" or "PRO". A trial gives Pro features until trialEndsAt.
-  plan                String   @default("FREE")
-  trialEndsAt         DateTime? @map("trial_ends_at") @db.Timestamptz(3)
   /// Secret for the read-only iCalendar feed (null = feed off).
   calendarFeedToken   String?  @unique @map("calendar_feed_token")
   createdAt           DateTime @default(now()) @map("created_at") @db.Timestamptz(3)

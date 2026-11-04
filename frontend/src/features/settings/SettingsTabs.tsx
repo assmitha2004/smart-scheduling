@@ -5,60 +5,7 @@ import { api, apiError, tokens } from '../../services/api';
 import { useAuth } from '../../services/auth';
 import { useToast } from '../../components/Toast';
 import { Button, Card, ErrorBox, Field, Input, Modal } from '../../components/ui';
-import { fmtDate } from '../../lib/format';
-import type { User } from '../../types';
-import { ProBadge, ProGate, usePlan, useStartTrial } from '../billing/plan';
-import { PricingCards } from '../billing/Pricing';
 import { useInstallPrompt } from '../../hooks/useInstallPrompt';
-
-export function PlanTab() {
-  const { user, setUser } = useAuth();
-  const plan = usePlan();
-  const trial = useStartTrial();
-  const toast = useToast();
-  const billing = useQuery({ queryKey: ['billing'], queryFn: async () => (await api.get<{ paymentsEnabled: boolean; trialUsed: boolean }>('/billing')).data });
-  const [confirmCancel, setConfirmCancel] = useState(false);
-  const cancel = useMutation({
-    mutationFn: async () => (await api.post<{ user: User }>('/billing/cancel')).data.user,
-    onSuccess: (u) => { setUser(u); setConfirmCancel(false); toast.show('You’re on the Free plan now. All your data is safe.', 'success'); },
-  });
-  const tz = user?.timezone ?? 'UTC';
-  return (
-    <div className="space-y-5">
-      <Card>
-        <div className="flex flex-wrap items-center gap-3">
-          <div className="text-3xl" aria-hidden>{plan.isPro ? '✨' : '🌱'}</div>
-          <div className="min-w-0 flex-1">
-            <p className="flex items-center gap-2 font-semibold">{plan.isPro ? <>Pro <ProBadge /></> : 'Free plan'}{plan.trialing && <span className="text-sm font-normal text-muted">· trial</span>}</p>
-            <p className="text-sm text-muted">
-              {plan.trialing ? `Your free trial ends ${fmtDate(user!.billing.trialEndsAt, tz)} (${plan.trialDaysLeft} day${plan.trialDaysLeft === 1 ? '' : 's'} left). After that you move to Free automatically, with nothing to cancel.`
-                : plan.paidPro ? 'Thanks for supporting Smart Scheduling! 💜'
-                : 'Upgrade any time for month planning, calendar sync, weekly reviews and team workspaces.'}
-            </p>
-          </div>
-          {plan.isPro && <Button variant="ghost" size="sm" onClick={() => setConfirmCancel(true)}>{plan.trialing ? 'End trial now' : 'Cancel Pro'}</Button>}
-        </div>
-      </Card>
-      {trial.error && <ErrorBox message={trial.error} />}
-      <PricingCards current={plan.isPro ? 'PRO' : 'FREE'} action={(id) => id === 'FREE' ? (
-        <Button variant="secondary" className="w-full" disabled>{plan.isPro ? 'Included in Pro' : 'Current plan'}</Button>
-      ) : plan.isPro ? (
-        <Button className="w-full" disabled>{plan.trialing ? `Trial active · ${plan.trialDaysLeft}d left` : 'Current plan'}</Button>
-      ) : !billing.data?.trialUsed ? (
-        <Button className="w-full" onClick={trial.start} loading={trial.busy}>Start 14-day free trial</Button>
-      ) : (
-        <div>
-          <Button className="w-full" disabled={!billing.data?.paymentsEnabled}>Upgrade to Pro</Button>
-          {!billing.data?.paymentsEnabled && <p className="mt-2 text-center text-xs text-muted">Card checkout isn’t connected on this deployment yet.</p>}
-        </div>
-      )} />
-      <Modal open={confirmCancel} onClose={() => setConfirmCancel(false)} title={plan.trialing ? 'End your trial?' : 'Cancel Pro?'}
-        footer={<><Button variant="ghost" onClick={() => setConfirmCancel(false)}>Keep Pro</Button><Button variant="danger" loading={cancel.isPending} onClick={() => cancel.mutate()}>Switch to Free</Button></>}>
-        <p className="text-sm">You’ll lose month planning, calendar sync (your feed link stops working), weekly reviews and new team invites. Your tasks, plans and history all stay.</p>
-      </Modal>
-    </div>
-  );
-}
 
 export function IntegrationsTab() {
   const toast = useToast();
@@ -71,8 +18,7 @@ export function IntegrationsTab() {
   const copy = async () => { try { await navigator.clipboard.writeText(url!); toast.show('Link copied! 📋', 'success'); } catch { toast.show('Couldn’t copy. Select the link and copy it manually.', 'error'); } };
   return (
     <div className="space-y-5">
-      <Card title={<span className="flex items-center gap-2">🔗 Calendar sync <ProBadge /></span>}>
-        <ProGate feature="CALENDAR_SYNC" compact>
+      <Card title="🔗 Calendar sync">
           <p className="mb-3 text-sm text-muted">Subscribe to your plan from Google Calendar, Apple Calendar or Outlook. Your study blocks, tasks, classes and meetings show up next to everything else, on every device, and update by themselves (calendar apps refresh every few hours).</p>
           {create.error && <div className="mb-3"><ErrorBox message={apiError(create.error).message} /></div>}
           {!url ? (
@@ -102,7 +48,6 @@ export function IntegrationsTab() {
               </div>
             </div>
           )}
-        </ProGate>
       </Card>
       <Card title="📱 Install the app">
         {install.installed ? <p className="text-sm">You’re using the installed app. Nice! 🎉</p> : (
