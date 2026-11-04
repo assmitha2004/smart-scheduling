@@ -9,6 +9,7 @@ import { useCelebrate } from '../../components/Celebrate';
 import { fmtMinutes } from '../../lib/format';
 import type { CalendarData, LifeAnswers, Persona, Project, Task } from '../../types';
 import { TIPS, studies } from './templates';
+import { useProgress } from '../progress/progress';
 
 /** Pomodoro-style focus timer; the length follows the user's focus preference. */
 export function FocusTimer() {
@@ -73,25 +74,15 @@ export function FocusTimer() {
   );
 }
 
-/** Consecutive days (ending today or yesterday) with at least one finished task. */
-export function computeStreak(doneDates: string[], tz: string, now = DateTime.now().setZone(tz)) {
-  const days = new Set(doneDates.map((d) => DateTime.fromISO(d, { zone: tz }).toISODate()));
-  const today = now.toISODate()!;
-  let cursor = days.has(today) ? now : now.minus({ days: 1 });
-  let streak = 0;
-  while (days.has(cursor.toISODate()!)) { streak++; cursor = cursor.minus({ days: 1 }); }
-  const doneToday = doneDates.filter((d) => DateTime.fromISO(d, { zone: tz }).toISODate() === today).length;
-  return { streak, doneToday };
-}
-
-function StreakCard({ done, tz }: { done: Task[]; tz: string }) {
-  const { streak, doneToday } = computeStreak(done.map((t) => t.completedAt).filter((d): d is string => !!d), tz);
+function StreakCard() {
+  const p = useProgress().data;
+  const streak = p?.streak ?? 0;
   const msg = streak >= 7 ? 'Unstoppable! A whole week 🏆' : streak >= 3 ? 'You’re on a roll! Keep it going 🔥' : streak >= 1 ? 'Nice! Finish one task today to keep it alive ✨' : 'Finish a task today to start a streak 🌱';
   return (
-    <Card title="🔥 Streak">
+    <Card title="🔥 Streak" action={p ? <Link to="/app/review" className="text-xs text-accent">Level {p.level}</Link> : undefined}>
       <div className="flex items-end gap-3">
         <span className="text-4xl font-bold text-accent">{streak}</span>
-        <span className="pb-1 text-sm text-muted">day{streak === 1 ? '' : 's'} in a row · {doneToday} done today</span>
+        <span className="pb-1 text-sm text-muted">day{streak === 1 ? '' : 's'} in a row · {p?.doneToday ?? 0} done today</span>
       </div>
       <p className="mt-2 text-sm">{msg}</p>
     </Card>
@@ -183,7 +174,7 @@ export function PersonaWidgets({ calendar, focusLeft }: { calendar?: CalendarDat
   return (
     <div className="mb-5 grid gap-5 md:grid-cols-2 xl:grid-cols-4">
       <FocusTimer />
-      <StreakCard done={done.data ?? []} tz={tz} />
+      <StreakCard />
       {studies(persona) ? <ExamCountdown answers={planner.data?.answers ?? null} tz={tz} /> : <WorkDay calendar={calendar} focusLeft={focusLeft} />}
       {persona === 'HYBRID' ? <Balance done={done.data ?? []} projects={projects.data ?? []} /> : <TipOfTheDay persona={persona} />}
     </div>

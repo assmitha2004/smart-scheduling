@@ -25,6 +25,7 @@ import { logActivity } from '../activity/activity.service.js';
 import { emitToUser } from '../../realtime/socket.js';
 import { scheduleBlockReminders } from '../../queues/index.js';
 import { resolvePrefs } from '../notifications/notifications.service.js';
+import { requireFeature } from '../../billing/plans.js';
 
 export interface ScheduleContext {
   user: User;
@@ -253,6 +254,7 @@ async function storeRecommendation(
 /** POST /schedules/preview — runs the engine and stores a pending recommendation. */
 export async function previewSchedule(userId: string, now = Date.now(), horizon?: PlanHorizon) {
   const ctx = await loadScheduleContext(userId, now, horizon);
+  if (horizon === 'MONTH') requireFeature(ctx.user, 'MONTH_PLANNING', now);
   const result = generateSchedule(ctx.input);
   const risks = computeRisks(ctx, result.ok ? result : undefined);
   let recommendationId: string | null = null;

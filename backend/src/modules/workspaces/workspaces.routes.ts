@@ -6,6 +6,7 @@ import { currentUser } from '../../middleware/auth.js';
 import { badRequest, notFound } from '../../utils/errors.js';
 import { assertWorkspaceMember } from '../access.js';
 import { logActivity } from '../activity/activity.service.js';
+import { requireFeature } from '../../billing/plans.js';
 
 export const workspacesRouter = Router();
 
@@ -52,6 +53,8 @@ workspacesRouter.get('/:id/members', async (req, res) => {
 workspacesRouter.post('/:id/members', async (req, res) => {
   const me = currentUser(req);
   await assertWorkspaceMember(me.id, req.params.id, ['OWNER', 'ADMIN']);
+  const inviter = await prisma.user.findUniqueOrThrow({ where: { id: me.id } });
+  requireFeature(inviter, 'TEAM_INVITES');
   const body = parse(z.object({ email: z.string().trim().toLowerCase().email(), role: z.enum(['ADMIN', 'MEMBER']).default('MEMBER') }), req.body);
   const user = await prisma.user.findUnique({ where: { email: body.email } });
   if (!user) throw notFound('User with that email');

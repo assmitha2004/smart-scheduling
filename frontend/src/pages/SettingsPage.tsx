@@ -1,4 +1,6 @@
 import { useEffect, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
+import clsx from 'clsx';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api, apiError } from '../services/api';
 import { useAuth } from '../services/auth';
@@ -6,10 +8,42 @@ import { useToast } from '../components/Toast';
 import { Badge, Button, Card, ErrorBox, Field, Input, PageHeader, Select } from '../components/ui';
 import { AvailabilityEditor, validateRules } from '../features/scheduling/AvailabilityEditor';
 import type { AvailabilityRule, User, Workspace } from '../types';
+import { AccountTab, IntegrationsTab, PlanTab } from '../features/settings/SettingsTabs';
+import { ProBadge, usePlan } from '../features/billing/plan';
+
+const TABS = [
+  { id: 'profile', label: '👤 Profile & planning' },
+  { id: 'plan', label: '✨ Plan' },
+  { id: 'integrations', label: '🔗 Calendar & app' },
+  { id: 'account', label: '🔒 Account' },
+] as const;
+type TabId = (typeof TABS)[number]['id'];
+
+export default function SettingsPage() {
+  const [params, setParams] = useSearchParams();
+  const tab = (TABS.some((t) => t.id === params.get('tab')) ? params.get('tab') : 'profile') as TabId;
+  return (
+    <>
+      <PageHeader title="Settings" />
+      <nav className="mb-5 flex gap-1 overflow-x-auto border-b border-border" aria-label="Settings sections">
+        {TABS.map((t) => (
+          <button key={t.id} onClick={() => setParams(t.id === 'profile' ? {} : { tab: t.id })} aria-current={tab === t.id ? 'page' : undefined}
+            className={clsx('-mb-px whitespace-nowrap border-b-2 px-3 py-2 text-sm', tab === t.id ? 'border-accent font-medium text-accent' : 'border-transparent text-muted hover:text-fg')}>
+            {t.label}
+          </button>
+        ))}
+      </nav>
+      {tab === 'profile' && <ProfileTab />}
+      {tab === 'plan' && <PlanTab />}
+      {tab === 'integrations' && <IntegrationsTab />}
+      {tab === 'account' && <AccountTab />}
+    </>
+  );
+}
 
 const TIMEZONES: string[] = (Intl as unknown as { supportedValuesOf?: (k: string) => string[] }).supportedValuesOf?.('timeZone') ?? ['UTC'];
 
-export default function SettingsPage() {
+function ProfileTab() {
   const { user, setUser } = useAuth();
   const toast = useToast();
   const qc = useQueryClient();
@@ -40,7 +74,6 @@ export default function SettingsPage() {
 
   return (
     <>
-      <PageHeader title="Settings" />
       {error && <div className="mb-4"><ErrorBox message={error} /></div>}
       <div className="grid gap-5 lg:grid-cols-2">
         <Card title="Profile & planning">
@@ -83,6 +116,7 @@ export default function SettingsPage() {
 
 function Members() {
   const qc = useQueryClient();
+  const plan = usePlan();
   const ws = useQuery({ queryKey: ['workspaces'], queryFn: async () => (await api.get<{ workspaces: Workspace[] }>('/workspaces')).data.workspaces });
   const w = ws.data?.[0];
   const members = useQuery({ queryKey: ['members', w?.id], enabled: !!w, queryFn: async () => (await api.get<{ members: { id: string; name: string; email: string; role: string }[] }>(`/workspaces/${w!.id}/members`)).data.members });
@@ -98,7 +132,10 @@ function Members() {
         {members.data?.map((m) => <li key={m.id} className="flex justify-between py-2"><span>{m.name} <span className="text-muted">{m.email}</span></span><Badge>{m.role.toLowerCase()}</Badge></li>)}
       </ul>
       {invite.error && <div className="mb-2"><ErrorBox message={apiError(invite.error).message} /></div>}
-      {(w.role === 'OWNER' || w.role === 'ADMIN') && (
+      {(w.role === 'OWNER' || w.role === 'ADMIN') && !plan.has('TEAM_INVITES') && (
+        <p className="flex items-center gap-2 text-sm text-muted"><ProBadge /> Inviting teammates is part of Pro. <a className="text-accent" href="/app/settings?tab=plan">See plans</a></p>
+      )}
+      {(w.role === 'OWNER' || w.role === 'ADMIN') && plan.has('TEAM_INVITES') && (
         <form className="flex gap-2" onSubmit={(e) => { e.preventDefault(); invite.mutate(); }}>
           <Input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="teammate@example.com (must have an account)" aria-label="Member email" />
           <Button type="submit" variant="secondary" disabled={!email}>Add member</Button>

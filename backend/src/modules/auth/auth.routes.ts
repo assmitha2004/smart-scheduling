@@ -10,6 +10,7 @@ import { signAccessToken } from '../../middleware/auth.js';
 import { conflict, unauthorized } from '../../utils/errors.js';
 import { isValidTimezone } from '../../utils/time.js';
 import { serializeUser } from '../users/users.routes.js';
+import { TRIAL_DAYS } from '../../billing/plans.js';
 
 export const authRouter = Router();
 
@@ -46,7 +47,7 @@ authRouter.post('/register', limiter, async (req, res) => {
   // Every user gets a personal workspace they own.
   const user = await prisma.$transaction(async (tx) => {
     const u = await tx.user.create({
-      data: { name: body.name, email: body.email, passwordHash, timezone: body.timezone ?? 'UTC' },
+      data: { name: body.name, email: body.email, passwordHash, timezone: body.timezone ?? 'UTC', trialEndsAt: new Date(Date.now() + TRIAL_DAYS * 86_400_000) },
     });
     const ws = await tx.workspace.create({ data: { name: `${body.name.split(' ')[0]}'s workspace`, ownerId: u.id } });
     await tx.workspaceMember.create({ data: { workspaceId: ws.id, userId: u.id, role: 'OWNER' } });

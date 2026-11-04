@@ -10,6 +10,7 @@ import type { Briefing, CalendarData } from '../types';
 import { useTaskPanel } from '../features/tasks/TaskPanel';
 import { PersonaWidgets } from '../features/planner/PersonaWidgets';
 import { PERSONAS } from '../features/planner/templates';
+import { GettingStarted } from '../features/progress/progress';
 
 const GREETING_LINES = [
   'Small steps every day add up 🌱',
@@ -94,6 +95,7 @@ export default function Dashboard() {
         <Stat label="Deadlines at risk" value={b.atRisk.length} tone={b.atRisk.length ? 'danger' : 'ok'} sub={`${b.unscheduledWork.length} unscheduled task(s)`} />
       </div>
 
+      <GettingStarted hasPlan={!!user?.persona} hasSchedule={(calendar.data?.blocks.length ?? 0) > 0} />
       <PersonaWidgets calendar={calendar.data} focusLeft={b.capacity.availableMinutesToday} />
 
       {nothing ? (

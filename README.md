@@ -19,7 +19,7 @@ Turns projects, tasks, estimates and dependencies into a **realistic plan that f
 
 [![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https%3A%2F%2Fgithub.com%2Fassmitha2004%2Fsmart-scheduling&env=DATABASE_URL,JWT_SECRET,AI_SERVICE_TOKEN&envDescription=Postgres%20connection%20string%2C%20a%20long%20random%20JWT%20secret%2C%20and%20a%20random%20token%20shared%20with%20the%20AI%20service&envLink=https%3A%2F%2Fgithub.com%2Fassmitha2004%2Fsmart-scheduling%23%EF%B8%8F-deploy-to-vercel&project-name=smart-scheduling&repository-name=smart-scheduling)
 
-**79 automated tests** · **1,000-task schedule in ~0.6 s** · **p95 API latency < 27 ms** · **0 double-bookings by construction**
+**102 automated tests** · **1,000-task schedule in ~0.6 s** · **p95 API latency < 27 ms** · **0 double-bookings by construction**
 
 <img src="docs/screenshots/dashboard.png" alt="Dashboard with daily briefing, top priorities and capacity" width="900">
 
@@ -55,6 +55,19 @@ New users pick **🎒 Student**, **💼 Working** or **🎓 Work + study**, and 
 A dry run shows a "week at a glance" preview before anything is saved; re-running replaces the planner's routine events and not-yet-started tasks. Then **Plan my day / week / month** runs the scheduling engine over that horizon (`POST /schedules/preview { horizon }`) for the usual preview → approve flow.
 
 Extras: 🎉 confetti and a cheerful message when a task is completed, a Pomodoro-style focus timer, a completion streak, an exam countdown (students), meetings & focus summary (workers), a work/study balance meter (both), and a daily tip.
+
+## 💼 Product & business features
+
+Smart Scheduling is built like a commercial SaaS, not just a demo:
+
+| Area | What's there |
+|---|---|
+| **Plans & entitlements** | Free and Pro plans. Every new account gets a **14-day Pro trial, no card**. Pro features (month planning, calendar sync, weekly review, team invites) are enforced **on the server** (`backend/src/billing/plans.ts` → `requireFeature`, `403 UPGRADE_REQUIRED`), with friendly upsell cards in the UI and a trial banner. Card checkout is behind a `PAYMENTS_ENABLED` flag and not connected yet. |
+| **Marketing site** | Landing page with persona tabs (students, professionals, work + study), how-it-works, features, pricing and FAQ; `/pricing`, `/terms`, `/privacy`; SEO and Open Graph tags. |
+| **Calendar sync** | Private iCalendar feed (`/api/v1/feed/<secret>.ics`, RFC 5545 with escaping and line folding) for Google Calendar, Apple Calendar and Outlook. Rotate or revoke the secret link any time. |
+| **Installable app (PWA)** | Web manifest, icons (incl. maskable), app shortcuts and a service worker (network-first pages, cached immutable assets, never caches the API). |
+| **Account & privacy** | Change password (signs out other devices), download all your data as JSON, delete your account (password + typed confirmation). |
+| **Engagement** | XP and levels, daily streaks, 12 badges, level-up and badge celebrations, a weekly review (wins, follow-through, best day, vs last week) and a getting-started checklist. Pure, unit-tested logic in `backend/src/progress/progress.ts`. |
 
 ## 📸 Screenshots
 

@@ -37,7 +37,8 @@ export default function AuthPage({ mode }: { mode: 'login' | 'register' }) {
       <div className="w-full max-w-sm">
         <Link to="/" className="mb-8 flex justify-center"><Logo /></Link>
         <form onSubmit={submit} className="space-y-4 rounded-xl border border-border bg-surface p-6">
-          <h1 className="text-lg font-semibold">{mode === 'login' ? 'Welcome back' : 'Create your account'}</h1>
+          <h1 className="text-lg font-semibold">{mode === 'login' ? 'Welcome back 👋' : 'Create your account'}</h1>
+          {mode === 'register' && <p className="-mt-2 text-sm text-muted">Free forever, with a 14-day Pro trial included ✨</p>}
           {error && <ErrorBox message={error} />}
           {mode === 'register' && <Field label="Name"><Input value={name} onChange={(e) => setName(e.target.value)} required autoComplete="name" /></Field>}
           <Field label="Email"><Input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required autoComplete="email" /></Field>
@@ -45,6 +46,7 @@ export default function AuthPage({ mode }: { mode: 'login' | 'register' }) {
             <Input type="password" value={password} onChange={(e) => setPassword(e.target.value)} required minLength={mode === 'register' ? 8 : 1} autoComplete={mode === 'login' ? 'current-password' : 'new-password'} />
           </Field>
           <Button type="submit" loading={busy} className="w-full">{mode === 'login' ? 'Log in' : 'Create account'}</Button>
+          {mode === 'register' && <p className="text-center text-xs text-muted">By creating an account you agree to our <Link className="text-accent" to="/terms">Terms</Link> and <Link className="text-accent" to="/privacy">Privacy Policy</Link>.</p>}
           <p className="text-center text-sm text-muted">
             {mode === 'login' ? <>New here? <Link className="text-accent" to="/register">Create an account</Link></> : <>Have an account? <Link className="text-accent" to="/login">Log in</Link></>}
           </p>

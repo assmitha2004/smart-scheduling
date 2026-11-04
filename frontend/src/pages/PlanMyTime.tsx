@@ -10,6 +10,7 @@ import { ChoiceCard, Tempo } from '../features/planner/controls';
 import { CHRONOTYPES, PERSONAS, defaultAnswers, studies } from '../features/planner/templates';
 import { SchedulePreviewView } from '../features/scheduling/SchedulePreview';
 import type { Horizon, LifeAnswers, Persona, SchedulePreview } from '../types';
+import { ProBadge, ProGate, usePlan } from '../features/billing/plan';
 
 const HORIZONS: { id: Horizon; emoji: string; title: string; blurb: string }[] = [
   { id: 'DAY', emoji: '📅', title: 'Plan my day', blurb: 'The rest of today' },
@@ -32,14 +33,21 @@ export function GeneratePlan({ initialHorizon, onDone }: { initialHorizon: Horiz
     setError(null);
     try { setPreview((await api.post<SchedulePreview>('/schedules/preview', { horizon: h })).data); } catch (e) { setError(apiError(e).message); } finally { setBusy(false); }
   };
+  const plan = usePlan();
+  const locked = horizon === 'MONTH' && !plan.has('MONTH_PLANNING');
   if (preview) return <Card><SchedulePreviewView preview={preview} onDone={() => { setPreview(null); onDone(); }} onRegenerate={() => build()} /></Card>;
   return (
     <div className="space-y-4">
       <div className="flex flex-col gap-3 sm:flex-row">
-        {HORIZONS.map((h) => <ChoiceCard key={h.id} selected={horizon === h.id} onClick={() => setHorizon(h.id)} emoji={h.emoji} title={h.title} blurb={h.blurb} />)}
+        {HORIZONS.map((h) => <ChoiceCard key={h.id} selected={horizon === h.id} onClick={() => setHorizon(h.id)} emoji={h.emoji} title={h.id === 'MONTH' && !plan.has('MONTH_PLANNING') ? `${h.title} 🔒` : h.title} blurb={h.blurb} />)}
       </div>
       {error && <ErrorBox message={error} />}
-      <Button onClick={() => build()} loading={busy}>✨ Build my {horizon === 'DAY' ? 'day' : horizon === 'WEEK' ? 'week' : 'month'}</Button>
+      {locked ? <ProGate feature="MONTH_PLANNING" compact>{null}</ProGate> : (
+        <div className="flex items-center gap-3">
+          <Button onClick={() => build()} loading={busy}>✨ Build my {horizon === 'DAY' ? 'day' : horizon === 'WEEK' ? 'week' : 'month'}</Button>
+          {horizon === 'MONTH' && plan.trialing && <span className="flex items-center gap-1 text-xs text-muted"><ProBadge /> trial feature</span>}
+        </div>
+      )}
     </div>
   );
 }

@@ -70,7 +70,7 @@ function TaskPanel({ taskId, onClose }: { taskId: string; onClose: () => void })
   }, [onClose, delayOpen]);
 
   const refresh = () => {
-    for (const k of ['task', 'tasks', 'timeline', 'projects', 'briefing', 'calendar', 'risk']) qc.invalidateQueries({ queryKey: [k] });
+    for (const k of ['task', 'tasks', 'timeline', 'projects', 'briefing', 'calendar', 'risk', 'progress']) qc.invalidateQueries({ queryKey: [k] });
   };
 
   const save = useMutation({

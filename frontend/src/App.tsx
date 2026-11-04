@@ -14,6 +14,8 @@ import ProjectsPage from './pages/ProjectsPage';
 import ProjectDetail from './pages/ProjectDetail';
 import PlanningPage from './pages/PlanningPage';
 import PlanMyTime from './pages/PlanMyTime';
+import WeeklyReview from './pages/WeeklyReview';
+import { PricingPage, PrivacyPage, TermsPage } from './pages/Public';
 import AnalyticsPage from './pages/AnalyticsPage';
 import SettingsPage from './pages/SettingsPage';
 
@@ -33,6 +35,9 @@ export default function App() {
       <Route path="/" element={user ? <Navigate to="/app" replace /> : <Landing />} />
       <Route path="/login" element={<AuthPage mode="login" />} />
       <Route path="/register" element={<AuthPage mode="register" />} />
+      <Route path="/pricing" element={<PricingPage />} />
+      <Route path="/terms" element={<TermsPage />} />
+      <Route path="/privacy" element={<PrivacyPage />} />
       <Route path="/onboarding" element={<RequireAuth allowUnonboarded><Onboarding /></RequireAuth>} />
       <Route path="/app" element={<RequireAuth><TaskPanelProvider><Layout /></TaskPanelProvider></RequireAuth>}>
         <Route index element={<Dashboard />} />
@@ -41,6 +46,7 @@ export default function App() {
         <Route path="projects/:id" element={<ProjectDetail />} />
         <Route path="plan" element={<PlanMyTime />} />
         <Route path="planning" element={<PlanningPage />} />
+        <Route path="review" element={<WeeklyReview />} />
         <Route path="analytics" element={<AnalyticsPage />} />
         <Route path="settings" element={<SettingsPage />} />
       </Route>

@@ -4,6 +4,8 @@ import { useState } from 'react';
 import { useAuth } from '../services/auth';
 import { NotificationsBell } from './NotificationsBell';
 import { useRealtime } from '../hooks/useRealtime';
+import { LevelChip, ProgressWatcher } from '../features/progress/progress';
+import { TrialBanner } from '../features/billing/plan';
 
 const NAV = [
   { to: '/app', label: 'Dashboard', icon: 'M3 12l9-9 9 9M5 10v10h14V10', end: true },
@@ -11,6 +13,7 @@ const NAV = [
   { to: '/app/calendar', label: 'Calendar', icon: 'M4 6h16v14H4zM4 10h16M9 3v4M15 3v4' },
   { to: '/app/projects', label: 'Projects', icon: 'M3 7h7l2 2h9v10H3z' },
   { to: '/app/planning', label: 'Smart planning', icon: 'M12 3l2.5 5 5.5.8-4 3.9.9 5.5L12 15.6 7.1 18.2 8 12.7 4 8.8l5.5-.8z' },
+  { to: '/app/review', label: 'Progress', icon: 'M8 21h8M12 17v4M7 4h10v5a5 5 0 0 1-10 0zM17 5h3v2a3 3 0 0 1-3 3M7 5H4v2a3 3 0 0 0 3 3' },
   { to: '/app/analytics', label: 'Analytics', icon: 'M4 20V10M10 20V4M16 20v-7M22 20H2' },
   { to: '/app/settings', label: 'Settings', icon: 'M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z' },
 ];
@@ -45,13 +48,16 @@ export function Layout() {
       <aside className="sticky top-0 hidden h-screen w-56 shrink-0 flex-col border-r border-border bg-surface p-3 md:flex">
         <div className="mb-6 px-2 pt-1"><Logo /></div>
         {nav}
-        <div className="mt-auto border-t border-border px-2 pt-3 text-xs text-muted">
+        <div className="mt-auto pb-3"><LevelChip /></div>
+        <div className="border-t border-border px-2 pt-3 text-xs text-muted">
           <div className="truncate font-medium text-fg">{user?.name}</div>
           <div className="truncate">{user?.timezone}</div>
           <button className="mt-2 text-accent" onClick={async () => { await logout(); navigate('/'); }}>Sign out</button>
         </div>
       </aside>
+      <ProgressWatcher />
       <div className="flex min-w-0 flex-1 flex-col">
+        <TrialBanner />
         <header className="sticky top-0 z-30 flex items-center justify-between border-b border-border bg-surface/90 px-4 py-2 backdrop-blur md:justify-end">
           <button className="rounded p-2 text-muted md:hidden" onClick={() => setMobileOpen((o) => !o)} aria-label="Menu">☰</button>
           <div className="md:hidden"><Logo /></div>
