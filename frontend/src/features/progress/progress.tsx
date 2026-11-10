@@ -77,15 +77,14 @@ export function BadgeGrid({ badges }: { badges: Progress['badges'] }) {
 const CHECK_KEY = 'ss.checklist.hidden';
 
 /** "Getting started" checklist on the dashboard until everything is done (or hidden). */
-export function GettingStarted({ hasPlan, hasSchedule }: { hasPlan: boolean; hasSchedule: boolean }) {
+export function GettingStarted({ hasPlan }: { hasPlan: boolean; hasSchedule?: boolean }) {
   const { user } = useAuth();
   const p = useProgress().data;
   const install = useInstallPrompt();
   const [hidden, setHidden] = useState(() => { try { return localStorage.getItem(CHECK_KEY) === '1'; } catch { return false; } });
   if (hidden || !p) return null;
   const items = [
-    { done: hasPlan || !!user?.persona, label: 'Answer Tempo’s questions', to: '/app/plan' },
-    { done: hasSchedule || p.badges.some((b) => b.id === 'planner-pro' && b.earnedAt), label: 'Accept your first schedule', to: '/app/plan?horizon=WEEK' },
+    { done: hasPlan || !!user?.persona, label: 'Plan your first day', to: '/app?plan=1' },
     { done: p.totalDone > 0, label: 'Finish your first task 🎉', to: '/app' },
     { done: !!user?.calendarFeedEnabled, label: 'Sync with your phone calendar', to: '/app/settings?tab=integrations' },
     { done: install.installed, label: 'Install the app', to: '/app/settings?tab=integrations' },
@@ -95,7 +94,7 @@ export function GettingStarted({ hasPlan, hasSchedule }: { hasPlan: boolean; has
   return (
     <Card className="mb-5" title={`🚀 Getting started · ${doneCount}/${items.length}`} action={<button className="text-xs text-muted hover:text-fg" onClick={() => { setHidden(true); try { localStorage.setItem(CHECK_KEY, '1'); } catch { /* ignore */ } }}>Hide</button>}>
       <div className="mb-3 h-1.5 overflow-hidden rounded-full bg-surface-2"><div className="h-full rounded-full bg-ok transition-all" style={{ width: `${(doneCount / items.length) * 100}%` }} /></div>
-      <ul className="grid gap-2 sm:grid-cols-2 lg:grid-cols-5">
+      <ul className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
         {items.map((i) => (
           <li key={i.label}>
             <Link to={i.to} className={`flex items-center gap-2 rounded-lg border px-3 py-2 text-sm ${i.done ? 'border-ok/30 bg-ok-soft/50 text-muted line-through' : 'border-border hover:border-accent'}`}>

@@ -97,7 +97,7 @@ function ExamCountdown({ answers, tz }: { answers: LifeAnswers | null; tz: strin
     .sort((a, b) => a.days - b.days)
     .slice(0, 4);
   return (
-    <Card title="📝 Exam countdown" action={<Link to="/app/plan" className="text-xs text-accent">Add exams</Link>}>
+    <Card title="📝 Exam countdown">
       {!exams.length ? <p className="text-sm text-muted">No exams coming up. Enjoy it! 🎉</p> : (
         <ul className="space-y-2">
           {exams.map((e) => (

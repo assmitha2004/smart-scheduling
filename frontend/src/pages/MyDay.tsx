@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { DateTime } from 'luxon';
 import clsx from 'clsx';
@@ -51,7 +51,9 @@ export default function MyDay() {
   const toast = useToast();
   const { celebrate } = useCelebrate();
   const [date, setDate] = useState<string | null>(null);
-  const [planning, setPlanning] = useState(false);
+  const [params, setParams] = useSearchParams();
+  const [planning, setPlanning] = useState(params.get('plan') === '1');
+  useEffect(() => { if (params.get('plan')) setParams({}, { replace: true }); }, [params, setParams]);
   const [quick, setQuick] = useState('');
   const [busyId, setBusyId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);

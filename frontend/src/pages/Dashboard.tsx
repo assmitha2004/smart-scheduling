@@ -9,7 +9,6 @@ import { fmtDateTime, fmtMinutes, fmtTime, relativeDays } from '../lib/format';
 import type { Briefing, CalendarData } from '../types';
 import { useTaskPanel } from '../features/tasks/TaskPanel';
 import { PersonaWidgets } from '../features/planner/PersonaWidgets';
-import { PERSONAS } from '../features/planner/templates';
 import { GettingStarted } from '../features/progress/progress';
 
 const GREETING_LINES = [
@@ -51,9 +50,7 @@ export default function Dashboard() {
         subtitle={<>{today.toFormat('cccc d LLLL')} · {GREETING_LINES[today.ordinal % GREETING_LINES.length]}</>}
         actions={
           <div className="flex flex-wrap gap-2">
-            <Link to="/app/plan?horizon=DAY"><Button>📅 Plan my day</Button></Link>
-            <Link to="/app/plan?horizon=WEEK"><Button variant="secondary">🗓️ Week</Button></Link>
-            <Link to="/app/plan?horizon=MONTH"><Button variant="secondary">🌙 Month</Button></Link>
+            <Link to="/app?plan=1"><Button>☀️ Plan my day</Button></Link>
           </div>
         } />
 
@@ -62,10 +59,10 @@ export default function Dashboard() {
           <div className="flex flex-wrap items-center gap-3">
             <span className="text-3xl" aria-hidden>🦉</span>
             <div className="min-w-0 flex-1">
-              <p className="font-semibold">Let Tempo plan your time</p>
-              <p className="text-sm text-muted">Tell me if you're a {PERSONAS.map((p) => `${p.emoji} ${p.title.toLowerCase()}`).join(', ')} person and I'll build your days around classes, work and life.</p>
+              <p className="font-semibold">Not sure what to do when?</p>
+              <p className="text-sm text-muted">Tell Tempo your tasks and get a planned day in 2 minutes, with breaks. Leftovers move to tomorrow.</p>
             </div>
-            <Link to="/app/plan"><Button>Start →</Button></Link>
+            <Link to="/app?plan=1"><Button>Start →</Button></Link>
           </div>
         </Card>
       )}
@@ -99,7 +96,7 @@ export default function Dashboard() {
       <PersonaWidgets calendar={calendar.data} focusLeft={b.capacity.availableMinutesToday} />
 
       {nothing ? (
-        <Empty title="Your plan is empty 🌱">Answer a few questions and Tempo will fill it with a smart schedule. <Link className="text-accent" to="/app/plan">Plan my time →</Link></Empty>
+        <Empty title="Your plan is empty 🌱">Answer a few questions and Tempo will fill it with a smart schedule. <Link className="text-accent" to="/app?plan=1">Plan my day →</Link></Empty>
       ) : (
         <div className="grid gap-5 lg:grid-cols-3">
           <div className="space-y-5 lg:col-span-2">
