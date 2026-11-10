@@ -9,6 +9,11 @@ from pydantic import BaseModel, Field, field_validator
 Priority = Literal["LOW", "MEDIUM", "HIGH", "URGENT"]
 
 
+
+def _utcnow() -> datetime:
+    """Current time; a function so tests can pin the clock."""
+    return datetime.now(timezone.utc)
+
 class ExtractRequest(BaseModel):
     text: str = Field(min_length=3, max_length=5000)
     timezone: str = "UTC"
@@ -45,7 +50,7 @@ class DraftTask(BaseModel):
             raise ValueError(f"invalid date {v!r}") from e
         if dt.tzinfo is None:
             raise ValueError("date must include a timezone offset")
-        now = datetime.now(timezone.utc)
+        now = _utcnow()
         if dt < now - timedelta(days=1) or dt > now + timedelta(days=3 * 365):
             raise ValueError("date out of range")
         return dt.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")

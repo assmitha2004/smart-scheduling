@@ -251,8 +251,35 @@ async function storeRecommendation(
 }
 
 /** POST /schedules/preview — runs the engine and stores a pending recommendation. */
-export async function previewSchedule(userId: string, now = Date.now(), horizon?: PlanHorizon) {
+export type Energy = 'LOW' | 'OK' | 'HIGH';
+
+/** Low energy: shorter sessions. High energy: allow longer ones. */
+export function applyEnergy(input: ScheduleInput, energy?: Energy): ScheduleInput {
+  if (!energy || energy === 'OK') return input;
+  const max = input.options?.maxBlockMinutes ?? 90;
+  const maxBlockMinutes = energy === 'LOW' ? Math.min(max, 30) : Math.max(max, 90);
+  return {
+    ...input,
+    options: { ...input.options, maxBlockMinutes, minBlockMinutes: Math.min(input.options?.minBlockMinutes ?? 30, maxBlockMinutes, energy === 'LOW' ? 15 : 30) },
+  };
+}
+
+/** Replaces the usual working hours with "today from … until …" (fixed events still apply). */
+export function applyDayWindow(input: ScheduleInput, window: { from: string; until: string } | undefined, now: number, timezone: string): ScheduleInput {
+  if (!window) return input;
+  const weekday = DateTime.fromMillis(now, { zone: timezone }).weekday % 7; // luxon: Mon=1..Sun=7 -> Sun=0
+  return { ...input, availability: [{ weekday, startTime: window.from, endTime: window.until, isActive: true }] };
+}
+
+export async function previewSchedule(
+  userId: string,
+  now = Date.now(),
+  horizon?: PlanHorizon,
+  energy?: Energy,
+  window?: { from: string; until: string },
+) {
   const ctx = await loadScheduleContext(userId, now, horizon);
+  ctx.input = applyDayWindow(applyEnergy(ctx.input, energy), window, now, ctx.user.timezone);
   const result = generateSchedule(ctx.input);
   const risks = computeRisks(ctx, result.ok ? result : undefined);
   let recommendationId: string | null = null;

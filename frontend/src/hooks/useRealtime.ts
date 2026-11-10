@@ -24,12 +24,12 @@ export function useRealtime(enabled: boolean) {
     if (!enabled || !realtime || !tokens.access) return;
     const socket = io(import.meta.env.VITE_API_URL ?? '/', { auth: { token: tokens.access }, transports: ['websocket'] });
     const refreshPlan = () => {
-      for (const k of ['calendar', 'briefing', 'risk', 'timeline', 'analytics']) qc.invalidateQueries({ queryKey: [k] });
+      for (const k of ['calendar', 'briefing', 'risk', 'timeline', 'analytics', 'day']) qc.invalidateQueries({ queryKey: [k] });
     };
     socket.on('schedule:updated', refreshPlan);
     socket.on('calendar:updated', refreshPlan);
     socket.on('task:updated', () => {
-      for (const k of ['tasks', 'task', 'projects', 'timeline', 'briefing']) qc.invalidateQueries({ queryKey: [k] });
+      for (const k of ['tasks', 'task', 'projects', 'timeline', 'briefing', 'day']) qc.invalidateQueries({ queryKey: [k] });
     });
     socket.on('notification:new', (n: { message: string }) => {
       qc.invalidateQueries({ queryKey: ['notifications'] });

@@ -37,6 +37,18 @@ Turns projects, tasks, estimates and dependencies into a **realistic plan that f
 - **AI with guardrails.** Natural language → *draft* tasks with dependencies, schema-validated twice (Pydantic + Zod) and rejected item by item. A built-in parser runs by default; Claude is opt-in per user. AI briefings are grounding-checked against engine data.
 - **Production plumbing.** JWT with rotating refresh tokens, role-based workspace access, BullMQ workers (reminders, daily plan at local hour, risk alerts, quiet hours), Socket.IO live updates relayed through Redis, Docker Compose, and GitHub Actions CI.
 
+## ☀️ My day: dump your tasks, answer a few questions, get your day
+
+The home screen is built for people who don't know where to start.
+
+1. **Brain dump.** Type every task, one per line, with or without a time (`leetcode 1h`, `call bank at 4pm`, `prepare DBMS exam 2h urgent`). Unfinished tasks from your list can be ticked in too.
+2. **A few questions per task**: how important, how long (guessed if you didn't say), when it's due, and "not before" a time. Then: *if you only get ONE thing done today, which one?*, *when are you free today?* and *how's your energy?* (low energy = short 30-minute sessions).
+3. **Preview and approve** the plan for the rest of today. Whatever doesn't fit stays on your list.
+4. **Track** each session: ✓ done, ½ partly done, skip, or "whole task finished". Logged time is subtracted from the task, so only what's left gets planned again. Encouragement at the first win, halfway and when a task is finished.
+5. **Carry-over.** Sessions never checked off on an earlier day show up as "unfinished from earlier days"; one tap (or the morning daily-plan job) moves them back onto your list for today's plan.
+
+API: `GET /day`, `POST /day/tasks`, `POST /day/blocks/:id` (`done` · `partial` · `skip` · `finish` · `undo`), `POST /day/carry-over`, and `POST /schedules/preview { horizon: 'DAY', energy, window: { from, until } }`.
+
 ## 🦉 Plan my time (students, workers, or both)
 
 New users pick **🎒 Student**, **💼 Working** or **🎓 Work + study**, and Tempo, a friendly planning assistant, asks a few tappable questions:

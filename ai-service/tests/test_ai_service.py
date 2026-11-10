@@ -14,6 +14,12 @@ client = TestClient(app)
 NOW = datetime(2026, 11, 3, 9, 0, tzinfo=timezone.utc)
 
 
+@pytest.fixture(autouse=True)
+def _pin_clock(monkeypatch):
+    # Due-date sanity checks compare against "now"; pin it to NOW so fixed dates stay valid.
+    monkeypatch.setattr("app.schemas._utcnow", lambda: NOW)
+
+
 def extract(text: str, **kw):
     return task_extraction.extract_with_rules(ExtractRequest(text=text, now=NOW, timezone=kw.get("tz", "UTC")))
 

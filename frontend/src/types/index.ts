@@ -287,3 +287,44 @@ export interface DraftTask {
 }
 
 export interface ApiErrorBody { code: string; message: string; details?: unknown }
+
+/** GET /day — the "My day" view. */
+export interface DayBlock {
+  id: string;
+  taskId: string;
+  title: string;
+  projectName: string;
+  color: string;
+  priority: Priority;
+  startAt: string;
+  endAt: string;
+  minutes: number;
+  status: 'CONFIRMED' | 'COMPLETED';
+  taskStatus: TaskStatus;
+  taskRemainingMinutes: number;
+}
+export interface DayTask {
+  id: string;
+  title: string;
+  priority: Priority;
+  status: TaskStatus;
+  estimatedMinutes: number;
+  actualMinutes: number;
+  remainingMinutes: number;
+  dueAt: string | null;
+  earliestStartAt: string | null;
+  version: number;
+  scheduledToday: boolean;
+  carried: boolean;
+}
+export interface DayView {
+  date: string;
+  timezone: string;
+  now: string;
+  blocks: DayBlock[];
+  events: { id: string; title: string; startAt: string; endAt: string; eventType: string }[];
+  openTasks: DayTask[];
+  missed: { blocks: number; minutes: number; tasks: { taskId: string; title: string }[] };
+  stats: { plannedMinutes: number; doneMinutes: number; sessions: number; sessionsDone: number };
+}
+export type Energy = 'LOW' | 'OK' | 'HIGH';

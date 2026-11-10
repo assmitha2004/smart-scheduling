@@ -5,6 +5,7 @@ import { inQuietHours, notify, resolvePrefs } from '../modules/notifications/not
 import { getDailyBriefing } from '../modules/briefings/briefings.service.js';
 import { computeRisks, loadScheduleContext } from '../modules/scheduling/scheduling.service.js';
 import { currentPlan } from '../modules/scheduling/plan.js';
+import { carryOverMissed } from '../modules/day/day.routes.js';
 
 /** Upcoming task reminder. Skips blocks that were moved/cancelled since the job was queued. */
 export async function runBlockReminder(data: { blockId: string; startAt: string }): Promise<string> {
@@ -34,6 +35,17 @@ export async function runDailyPlanSweep(now = new Date()): Promise<number> {
     if (!prefs.dailyPlan) continue;
     const local = DateTime.fromJSDate(now, { zone: u.timezone });
     if (local.hour !== prefs.dailyPlanHour) continue;
+    // Sessions missed on earlier days go back on the to-do list before today's plan is built.
+    const carried = await carryOverMissed(u.id, u.timezone, now.getTime());
+    if (carried.blocks) {
+      await notify({
+        userId: u.id,
+        type: 'CARRIED_OVER',
+        message: `${carried.tasks.length} unfinished task${carried.tasks.length === 1 ? '' : 's'} from before ${carried.tasks.length === 1 ? 'is' : 'are'} back on your list: ${carried.tasks.slice(0, 3).map((t) => `"${t.title}"`).join(', ')}${carried.tasks.length > 3 ? '…' : ''}. Open My day to fit ${carried.tasks.length === 1 ? 'it' : 'them'} in.`,
+        data: { tasks: carried.tasks },
+        dedupeKey: `carry:${u.id}:${local.toISODate()}`,
+      });
+    }
     const { briefing, narrative } = await getDailyBriefing(u.id, { now: now.getTime() });
     const r = await notify({
       userId: u.id,

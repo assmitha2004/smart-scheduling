@@ -22,6 +22,7 @@ import { plannerRouter } from './modules/planner/planner.routes.js';
 import { accountRouter } from './modules/account/account.routes.js';
 import { feedSettingsRouter, publicFeedRouter } from './modules/calendar/feed.routes.js';
 import { progressRouter } from './modules/progress/progress.routes.js';
+import { dayRouter } from './modules/day/day.routes.js';
 
 export function createApp() {
   const app = express();
@@ -65,6 +66,7 @@ export function createApp() {
   v1.use('/account', accountRouter);
   v1.use('/calendar-feed', feedSettingsRouter);
   v1.use('/progress', progressRouter);
+  v1.use('/day', dayRouter);
   app.use('/api/v1', v1);
 
   app.use(notFoundHandler);
