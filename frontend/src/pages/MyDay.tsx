@@ -57,6 +57,7 @@ export default function MyDay() {
   const [quick, setQuick] = useState('');
   const [busyId, setBusyId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
   const nowMin = useNowMinute(tz);
 
   const q = useQuery({ queryKey: ['day', date], queryFn: async () => (await api.get<DayData>('/day', { params: date ? { date } : {} })).data });
@@ -78,7 +79,8 @@ export default function MyDay() {
   async function act(id: string, fn: () => Promise<void>) {
     setBusyId(id);
     setError(null);
-    try { await fn(); } catch (e) { setError(apiError(e).message); } finally { setBusyId(null); }
+    setNotice(null);
+    try { await fn(); } catch (e) { const m = apiError(e).message; setError(m); toast.show(m, 'error'); } finally { setBusyId(null); }
   }
   const toggle = (t: DayTask) => act(t.id, async () => {
     const r = await api.post<{ day: DayData; compliment: string | null }>(`/day/tasks/${t.id}/done`, { done: !t.done });
@@ -88,9 +90,16 @@ export default function MyDay() {
   const later = (t: DayTask) => act(t.id, async () => { setDay((await api.post<{ day: DayData }>(`/day/tasks/${t.id}/tomorrow`)).data.day); toast.show(`“${t.title}” moved to tomorrow`, 'success'); });
   const remove = (t: DayTask) => act(t.id, async () => { setDay((await api.delete<{ day: DayData }>(`/day/tasks/${t.id}`)).data.day); });
   const replan = (extend?: { taskId: string; minutes: number }) => act(extend?.taskId ?? 'replan', async () => {
-    const r = await api.post<{ day: DayData; moved: string[] }>('/day/replan', { date: viewDate, extend });
+    setNotice(null);
+    const r = await api.post<{ day: DayData; moved: string[]; changed: number }>('/day/replan', { date: viewDate, extend });
     setDay(r.data.day);
-    toast.show(r.data.moved.length ? `Re-planned. Moved to tomorrow: ${r.data.moved.join(', ')}` : 'Re-planned the rest of your day ✨', 'success');
+    const parts: string[] = [];
+    if (extend) parts.push(`Added ${extend.minutes} min. Everything after it shifted ⏩`);
+    else if (r.data.changed === 0 && !r.data.moved.length) parts.push('Your plan is already up to date ✅ Nothing needed to move.');
+    else parts.push(`Re-planned from ${clock(Math.ceil(nowMin / 5) * 5)}: ${r.data.changed} session${r.data.changed === 1 ? '' : 's'} got new times ✨`);
+    if (r.data.moved.length) parts.push(`Moved to tomorrow: ${r.data.moved.join(', ')}.`);
+    setNotice(parts.join(' '));
+    toast.show(parts[0], 'success');
   });
   async function addQuick(e: React.FormEvent) {
     e.preventDefault();
@@ -208,8 +217,6 @@ export default function MyDay() {
         </div>
       )}
 
-      {error && <div className="mb-4"><ErrorBox message={error} /></div>}
-
       <ol className="space-y-1.5" aria-label="Timeline">
         {items.map((it: DayPlanItem, i) => {
           const t = it.taskId ? taskById.get(it.taskId) : undefined;
@@ -258,6 +265,12 @@ export default function MyDay() {
       {day.plan.insights.length > 0 && (
         <div className="mt-6">
           <Tempo mood="🦉"><ul className="space-y-1 text-sm">{day.plan.insights.map((t, i) => <li key={i}>{t}</li>)}</ul></Tempo>
+        </div>
+      )}
+
+      {(notice || error) && (
+        <div className="mt-6" aria-live="polite">
+          {error ? <ErrorBox message={error} /> : <p className="rounded-xl border border-ok/30 bg-ok-soft/50 p-3 text-sm">{notice}</p>}
         </div>
       )}
 

@@ -160,7 +160,8 @@ const planSchema = z.object({
   dryRun: z.boolean().default(false),
 });
 
-type TaskIn = z.infer<typeof taskSchema>;
+/** `planMinutes` (internal): time to plan today when it differs from the task's estimate, e.g. what's left of a task in progress. */
+type TaskIn = z.infer<typeof taskSchema> & { planMinutes?: number; planFixedTime?: string };
 
 /** Plans the day and (unless dryRun) saves tasks, the timeline and what moves to tomorrow. */
 async function planAndSave(u: User, date: string, settings: Settings, input: TaskIn[], removeIds: string[], dryRun: boolean) {
@@ -200,14 +201,17 @@ async function planAndSave(u: User, date: string, settings: Settings, input: Tas
     tasks: open.map((t, i): DayTaskInput => ({
       id: keys[i],
       title: t.title,
-      minutes: t.minutes,
+      minutes: t.planMinutes ?? t.minutes,
       mustDo: t.mustDo,
       top: t.top,
       effort: t.effort,
-      fixedTime: t.fixedTime ?? null,
+      fixedTime: t.planFixedTime ?? t.fixedTime ?? null,
       fromEarlier: !!(t.id && byId.get(t.id)?.plannedDate && byId.get(t.id)!.plannedDate! < date),
     })),
   });
+  // Tasks already under way keep going now; say so instead of "like you asked".
+  const continuing = new Set(open.filter((t) => t.planFixedTime).map((t) => t.id));
+  for (const i of result.items) if (i.taskId && continuing.has(i.taskId)) i.reason = '▶ In progress, carrying on now';
   // Done tasks show again as done items; busy copies of them are dropped.
   const items = [...result.items.filter((i) => !(i.kind === 'BUSY' && keptItems.some((k) => k.start === i.start && k.title === i.title))), ...keptItems].sort((a, b) => a.start - b.start);
 
@@ -246,7 +250,11 @@ async function planAndSave(u: User, date: string, settings: Settings, input: Tas
     await tx.dayPlan.upsert({ where: { userId_date: { userId: u.id, date } }, create: { userId: u.id, date, ...data }, update: data });
   });
   emitToUser(u.id, 'task:updated', { reason: 'day-plan' });
-  return { day: await dayPayload(u, date), moved: result.overflow.map((o) => o.title) };
+  // How many task sessions changed time compared with the previous plan.
+  const before = new Map(((previous?.items ?? []) as unknown as PlanItem[]).filter((i) => i.kind === 'TASK').map((i) => [`${i.taskId}:${i.part ?? 0}`, `${i.start}-${i.end}`]));
+  const day = await dayPayload(u, date);
+  const changed = (day.plan?.items ?? []).filter((i) => i.kind === 'TASK' && i.taskId && !doneIds.has(i.taskId) && before.get(`${i.taskId}:${i.part ?? 0}`) !== `${i.start}-${i.end}`).length;
+  return { day, moved: result.overflow.map((o) => o.title), changed };
 }
 
 // ---------- routes ----------
@@ -283,14 +291,21 @@ dayRouter.post('/replan', async (req, res) => {
   const nowMin = n.hour * 60 + n.minute;
   const input: TaskIn[] = tasks.map((t) => {
     let minutes = t.estimatedMinutes;
-    if (body.extend?.taskId === t.id) {
-      // Remaining time of a task in progress, plus the extra time asked for.
-      const current = items.filter((i) => i.taskId === t.id);
-      const running = isToday(u, date) ? current.find((i) => i.start <= nowMin && nowMin < i.end) : undefined;
-      const left = running ? current.filter((i) => i.end > nowMin).reduce((s, i) => s + i.end - Math.max(i.start, nowMin), 0) : t.estimatedMinutes;
-      minutes = Math.min(720, Math.max(5, left) + body.extend.minutes);
+    let planMinutes: number | undefined;
+    // A task already under way keeps only its remaining time (it isn't restarted from zero).
+    const current = items.filter((i) => i.taskId === t.id);
+    const running = isToday(u, date) ? current.find((i) => i.start <= nowMin && nowMin < i.end) : undefined;
+    let planFixedTime: string | undefined;
+    if (running) {
+      // ...and carries on right now instead of being moved elsewhere.
+      planMinutes = Math.max(5, current.filter((i) => i.end > nowMin).reduce((sum, i) => sum + i.end - Math.max(i.start, nowMin), 0));
+      planFixedTime = fromMin(Math.ceil(nowMin / 5) * 5);
     }
-    return { id: t.id, title: t.title, minutes, mustDo: t.mustDo, top: t.dayTop, effort: (t.effort ?? 'MEDIUM') as Effort, fixedTime: t.fixedTime };
+    if (body.extend?.taskId === t.id) {
+      minutes = Math.min(720, minutes + body.extend.minutes);
+      planMinutes = Math.min(720, (planMinutes ?? t.estimatedMinutes) + body.extend.minutes);
+    }
+    return { id: t.id, title: t.title, minutes, planMinutes, planFixedTime, mustDo: t.mustDo, top: t.dayTop, effort: (t.effort ?? 'MEDIUM') as Effort, fixedTime: t.fixedTime };
   });
   res.json(await planAndSave(u, date, settings, input, [], false));
 });
