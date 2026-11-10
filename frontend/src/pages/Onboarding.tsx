@@ -86,7 +86,7 @@ export default function Onboarding() {
             </div>
             {error && <ErrorBox message={error} />}
             <div className="flex flex-wrap items-center justify-between gap-2">
-              <button type="button" className="text-sm text-muted hover:text-fg" onClick={skip} disabled={busy}>Skip, I'll set things up myself</button>
+              <button type="button" className="text-sm text-muted hover:text-fg" onClick={skip} disabled={busy}>Skip, just plan my day →</button>
               <Button onClick={start} loading={busy} disabled={!persona}>Let's plan my time →</Button>
             </div>
           </div>

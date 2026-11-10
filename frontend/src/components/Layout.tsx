@@ -7,7 +7,8 @@ import { useRealtime } from '../hooks/useRealtime';
 import { LevelChip, ProgressWatcher } from '../features/progress/progress';
 
 const NAV = [
-  { to: '/app', label: 'Dashboard', icon: 'M3 12l9-9 9 9M5 10v10h14V10', end: true },
+  { to: '/app', label: 'My Day', icon: 'M12 3v2M12 19v2M5.6 5.6l1.4 1.4M17 17l1.4 1.4M3 12h2M19 12h2M5.6 18.4 7 17M17 7l1.4-1.4M12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8z', end: true },
+  { to: '/app/overview', label: 'Overview', icon: 'M3 12l9-9 9 9M5 10v10h14V10' },
   { to: '/app/plan', label: 'Plan my time ✨', icon: 'M12 2v4M12 18v4M4.9 4.9l2.8 2.8M16.3 16.3l2.8 2.8M2 12h4M18 12h4M4.9 19.1l2.8-2.8M16.3 7.7l2.8-2.8' },
   { to: '/app/calendar', label: 'Calendar', icon: 'M4 6h16v14H4zM4 10h16M9 3v4M15 3v4' },
   { to: '/app/projects', label: 'Projects', icon: 'M3 7h7l2 2h9v10H3z' },

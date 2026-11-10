@@ -91,6 +91,8 @@ export async function loadScheduleContext(userId: string, now = Date.now(), hori
   const scopeWhere: Prisma.TaskWhereInput = {
     project: { workspaceId: { in: workspaceIds }, status: { notIn: ['ARCHIVED', 'COMPLETED'] } },
     OR: [{ assigneeId: userId }, { assigneeId: null }],
+    // Tasks planned in "My Day" are scheduled by the day planner, not here.
+    plannedDate: null,
   };
   const openTasks = await prisma.task.findMany({
     where: { ...scopeWhere, status: { in: [...OPEN_STATUSES] } },

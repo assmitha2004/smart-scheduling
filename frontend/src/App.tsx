@@ -8,6 +8,7 @@ import Landing from './pages/Landing';
 import AuthPage from './pages/AuthPage';
 import Onboarding from './pages/Onboarding';
 import Dashboard from './pages/Dashboard';
+import MyDay from './pages/MyDay';
 // FullCalendar is heavy; load the calendar page on demand.
 const CalendarPage = lazy(() => import('./pages/CalendarPage'));
 import ProjectsPage from './pages/ProjectsPage';
@@ -39,7 +40,8 @@ export default function App() {
       <Route path="/privacy" element={<PrivacyPage />} />
       <Route path="/onboarding" element={<RequireAuth allowUnonboarded><Onboarding /></RequireAuth>} />
       <Route path="/app" element={<RequireAuth><TaskPanelProvider><Layout /></TaskPanelProvider></RequireAuth>}>
-        <Route index element={<Dashboard />} />
+        <Route index element={<MyDay />} />
+        <Route path="overview" element={<Dashboard />} />
         <Route path="calendar" element={<Suspense fallback={<Loading />}><CalendarPage /></Suspense>} />
         <Route path="projects" element={<ProjectsPage />} />
         <Route path="projects/:id" element={<ProjectDetail />} />

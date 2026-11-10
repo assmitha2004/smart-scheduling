@@ -3,6 +3,7 @@ import { Router } from 'express';
 import { prisma } from '../../db.js';
 import { currentUser } from '../../middleware/auth.js';
 import { notFound } from '../../utils/errors.js';
+import { DateTime } from 'luxon';
 import { buildIcs, type IcsEvent } from '../../utils/ics.js';
 
 const PAST_DAYS = 7;
@@ -47,15 +48,32 @@ publicFeedRouter.get('/:file', async (req, res) => {
   }
   const from = new Date(Date.now() - PAST_DAYS * 86_400_000);
   const to = new Date(Date.now() + FUTURE_DAYS * 86_400_000);
-  const [blocks, events] = await Promise.all([
+  const fromDate = DateTime.fromJSDate(from).setZone(user.timezone).toISODate()!;
+  const [blocks, events, dayPlans] = await Promise.all([
     prisma.scheduledBlock.findMany({
       where: { userId: user.id, status: { in: ['CONFIRMED', 'COMPLETED'] }, startAt: { lt: to }, endAt: { gt: from } },
       include: { task: { include: { project: { select: { name: true } } } } },
       orderBy: { startAt: 'asc' },
     }),
     prisma.calendarEvent.findMany({ where: { userId: user.id, startAt: { lt: to }, endAt: { gt: from } }, orderBy: { startAt: 'asc' } }),
+    prisma.dayPlan.findMany({ where: { userId: user.id, date: { gte: fromDate } } }),
   ]);
+  // Tasks planned with "My Day" (items are minutes since local midnight).
+  const dayItems: IcsEvent[] = dayPlans.flatMap((p) => {
+    const midnight = DateTime.fromISO(p.date, { zone: user.timezone }).startOf('day');
+    return (p.items as unknown as { kind: string; taskId: string | null; title: string; start: number; end: number; part: number | null }[])
+      .filter((i) => i.kind === 'TASK')
+      .map((i) => ({
+        uid: `day-${p.date}-${i.taskId}-${i.part ?? 0}@smart-scheduling`,
+        title: i.title,
+        start: midnight.plus({ minutes: i.start }).toJSDate(),
+        end: midnight.plus({ minutes: i.end }).toJSDate(),
+        description: 'Planned with My Day · Smart Scheduling',
+        categories: ['My Day'],
+      }));
+  });
   const items: IcsEvent[] = [
+    ...dayItems,
     ...blocks.map((b) => ({
       uid: `block-${b.id}@smart-scheduling`,
       title: `${b.status === 'COMPLETED' ? '✅ ' : ''}${b.task.title}`,

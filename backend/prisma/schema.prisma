@@ -101,6 +101,7 @@ model User {
   assignedTasks     Task[]                   @relation("TaskAssignee")
   calendarEvents    CalendarEvent[]
   availabilityRules AvailabilityRule[]
+  dayPlans          DayPlan[]
   scheduledBlocks   ScheduledBlock[]
   recommendations   ScheduleRecommendation[]
   notifications     Notification[]
@@ -200,6 +201,17 @@ model Task {
   completedAt      DateTime?    @map("completed_at") @db.Timestamptz(3)
   /// Optimistic-concurrency version for task edits.
   version          Int          @default(1)
+  /// "My Day" planner: the local day (YYYY-MM-DD) this task is planned for.
+  plannedDate      String?      @map("planned_date")
+  mustDo           Boolean      @default(false) @map("must_do")
+  /// Most important task of its day.
+  dayTop           Boolean      @default(false) @map("day_top")
+  /// EASY, MEDIUM or HARD: how much focus the task needs.
+  effort           String?
+  /// HH:mm when the task must start, if it has a set time.
+  fixedTime        String?      @map("fixed_time")
+  /// How many times it was carried over to a later day.
+  rolloverCount    Int          @default(0) @map("rollover_count")
   createdAt        DateTime     @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt        DateTime     @updatedAt @map("updated_at") @db.Timestamptz(3)
 
@@ -212,6 +224,7 @@ model Task {
 
   @@index([projectId, status])
   @@index([assigneeId, dueAt])
+  @@index([assigneeId, plannedDate])
   @@map("tasks")
 }
 
@@ -347,4 +360,24 @@ model ActivityLog {
   @@index([workspaceId, createdAt])
   @@index([entityType, entityId])
   @@map("activity_logs")
+}
+
+/// The planned timeline of one day in "My Day" (tasks, breaks and fixed events).
+model DayPlan {
+  id        String   @id @default(uuid()) @db.Uuid
+  userId    String   @map("user_id") @db.Uuid
+  /// Local day, YYYY-MM-DD in the user's timezone.
+  date      String
+  /// Day start/end (HH:mm) and energy peak used for planning.
+  settings  Json     @default("{}")
+  /// Planned timeline: [{ kind, taskId, title, start, end, part, parts, reason }] in minutes since local midnight.
+  items     Json     @default("[]")
+  insights  Json     @default("[]")
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, date])
+  @@map("day_plans")
 }

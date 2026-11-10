@@ -287,3 +287,44 @@ export interface DraftTask {
 }
 
 export interface ApiErrorBody { code: string; message: string; details?: unknown }
+
+// ---------- My Day ----------
+export type Effort = 'EASY' | 'MEDIUM' | 'HARD';
+export type Peak = 'MORNING' | 'AFTERNOON' | 'EVENING';
+export interface DayTask {
+  id: string;
+  title: string;
+  minutes: number;
+  status: TaskStatus;
+  done: boolean;
+  mustDo: boolean;
+  top: boolean;
+  effort: Effort;
+  fixedTime: string | null;
+  plannedDate: string | null;
+  rolloverCount: number;
+  completedAt: string | null;
+}
+export interface DayPlanItem {
+  kind: 'TASK' | 'BREAK' | 'BUSY';
+  taskId: string | null;
+  title: string;
+  start: number;
+  end: number;
+  part: number | null;
+  parts: number | null;
+  reason: string | null;
+}
+export interface DaySettings { dayStart: string; dayEnd: string; peak: Peak }
+export interface DayData {
+  date: string;
+  today: string;
+  timezone: string;
+  defaults: DaySettings;
+  plan: { settings: DaySettings; items: DayPlanItem[]; insights: string[]; updatedAt: string } | null;
+  tasks: DayTask[];
+  leftovers: DayTask[];
+  tomorrowCount: number;
+  progress: { done: number; total: number; minutesDone: number };
+}
+export interface ParsedTask { title: string; minutes: number; minutesGuessed: boolean; effort: Effort; fixedTime: string | null }
