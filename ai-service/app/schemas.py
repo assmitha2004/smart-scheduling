@@ -4,7 +4,7 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 from typing import Any, Literal, Optional
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, ValidationInfo
 
 Priority = Literal["LOW", "MEDIUM", "HIGH", "URGENT"]
 
@@ -36,7 +36,7 @@ class DraftTask(BaseModel):
 
     @field_validator("dueAt")
     @classmethod
-    def _due(cls, v: Optional[str]) -> Optional[str]:
+    def _due(cls, v: Optional[str], info: ValidationInfo) -> Optional[str]:
         if v is None:
             return None
         try:
@@ -45,7 +45,9 @@ class DraftTask(BaseModel):
             raise ValueError(f"invalid date {v!r}") from e
         if dt.tzinfo is None:
             raise ValueError("date must include a timezone offset")
-        now = datetime.now(timezone.utc)
+        # Range is checked against the request's "now" (passed as validation
+        # context) so results don't depend on the wall clock.
+        now = (info.context or {}).get("now") or datetime.now(timezone.utc)
         if dt < now - timedelta(days=1) or dt > now + timedelta(days=3 * 365):
             raise ValueError("date out of range")
         return dt.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")

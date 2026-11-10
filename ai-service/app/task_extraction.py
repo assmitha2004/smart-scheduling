@@ -236,14 +236,14 @@ def extract_with_rules(req: ExtractRequest) -> ExtractResponse:
 
     tasks: list[DraftTask] = []
     for i, d in enumerate(unique):
-        tasks.append(DraftTask(
+        tasks.append(DraftTask.model_validate(dict(
             tempId=f"t{i + 1}",
             title=d["title"],
             estimatedMinutes=d["estimatedMinutes"],
             dueAt=d["due"].astimezone(timezone.utc).isoformat().replace("+00:00", "Z") if d["due"] else None,
             priority=d["priority"],
             confidence=d["confidence"],
-        ))
+        ), context={"now": now}))
         if d["estimatedMinutes"] is None:
             warnings.append(f'Estimate needed for "{d["title"]}" - please confirm one.')
     dependencies = sorted({(remap[a], remap[b]) for a, b in deps if remap[a] != remap[b]})
@@ -278,8 +278,9 @@ def extract_with_llm(req: ExtractRequest) -> ExtractResponse:
     warnings: list[str] = []
     for t in parsed.tasks:
         try:
-            tasks.append(DraftTask(tempId=t.tempId, title=t.title, estimatedMinutes=t.estimatedMinutes,
-                                   dueAt=t.dueAt, priority=t.priority, confidence=0.8))
+            tasks.append(DraftTask.model_validate(
+                dict(tempId=t.tempId, title=t.title, estimatedMinutes=t.estimatedMinutes, dueAt=t.dueAt, priority=t.priority, confidence=0.8),
+                context={"now": now}))
         except ValidationError as e:
             # Keep the rest; report the bad item (Scenario F).
             warnings.append(f'Dropped AI suggestion "{t.title}": {e.errors()[0]["msg"]}')
