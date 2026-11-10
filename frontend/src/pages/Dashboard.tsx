@@ -51,7 +51,7 @@ export default function Dashboard() {
         subtitle={<>{today.toFormat('cccc d LLLL')} · {GREETING_LINES[today.ordinal % GREETING_LINES.length]}</>}
         actions={
           <div className="flex flex-wrap gap-2">
-            <Link to="/app/plan?horizon=DAY"><Button>📅 Plan my day</Button></Link>
+            <Link to="/app"><Button>📅 Plan my day</Button></Link>
             <Link to="/app/plan?horizon=WEEK"><Button variant="secondary">🗓️ Week</Button></Link>
             <Link to="/app/plan?horizon=MONTH"><Button variant="secondary">🌙 Month</Button></Link>
           </div>

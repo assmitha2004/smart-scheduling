@@ -44,7 +44,7 @@ export function SchedulePreviewView({ preview, onDone, onRegenerate }: { preview
     try {
       const r = await api.post('/schedules/commit', { recommendationId: preview.recommendationId, expectedVersion: preview.scheduleVersion, excludeTaskIds: [...rejected] });
       toast.show(`Schedule saved: ${r.data.committedBlocks} blocks on your calendar.`, 'success');
-      for (const k of ['calendar', 'briefing', 'risk', 'timeline', 'analytics', 'task']) qc.invalidateQueries({ queryKey: [k] });
+      for (const k of ['calendar', 'briefing', 'risk', 'timeline', 'analytics', 'task', 'day']) qc.invalidateQueries({ queryKey: [k] });
       onDone();
     } catch (e) {
       setError(apiError(e));

@@ -8,10 +8,19 @@ import { commitRecommendation, dismissRecommendation, previewReplan, previewSche
 export const schedulesRouter = Router();
 
 /** POST /schedules/preview — generate a proposed schedule (nothing is saved to the calendar). */
-const previewSchema = z.object({ horizon: z.enum(['DAY', 'WEEK', 'MONTH']).optional() });
+const previewSchema = z.object({
+  horizon: z.enum(['DAY', 'WEEK', 'MONTH']).optional(),
+  /** How the user feels: LOW plans shorter sessions and a lighter load. */
+  energy: z.enum(['LOW', 'OK', 'HIGH']).optional(),
+  /** DAY only: "I can work today from … until …" (local HH:mm), used instead of the usual working hours. */
+  window: z
+    .object({ from: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/), until: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$|^24:00$/) })
+    .refine((w) => w.until > w.from, 'The end time must be after the start time')
+    .optional(),
+});
 schedulesRouter.post('/preview', async (req, res) => {
-  const { horizon } = parse(previewSchema, req.body ?? {});
-  res.json(await previewSchedule(currentUser(req).id, Date.now(), horizon));
+  const { horizon, energy, window } = parse(previewSchema, req.body ?? {});
+  res.json(await previewSchedule(currentUser(req).id, Date.now(), horizon, energy, horizon === 'DAY' ? window : undefined));
 });
 
 const commitSchema = z.object({

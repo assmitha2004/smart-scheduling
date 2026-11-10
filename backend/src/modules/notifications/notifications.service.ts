@@ -8,7 +8,8 @@ export type NotificationType =
   | 'DEADLINE_RISK'
   | 'DEPENDENCY_UNBLOCKED'
   | 'DAILY_PLAN'
-  | 'SCHEDULE_UPDATED';
+  | 'SCHEDULE_UPDATED'
+  | 'CARRIED_OVER';
 
 export interface NotificationPrefs {
   taskReminders: boolean;
@@ -33,6 +34,7 @@ const PREF_FOR_TYPE: Partial<Record<NotificationType, keyof NotificationPrefs>> 
   DEADLINE_RISK: 'deadlineRisk',
   DEPENDENCY_UNBLOCKED: 'dependencyUnblocked',
   DAILY_PLAN: 'dailyPlan',
+  CARRIED_OVER: 'dailyPlan',
 };
 
 export function resolvePrefs(raw: unknown): NotificationPrefs {

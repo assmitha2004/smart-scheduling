@@ -5,7 +5,7 @@ import type { Notification } from '../types';
 import { useAuth } from '../services/auth';
 import { fmtDateTime } from '../lib/format';
 
-const ICON: Record<string, string> = { TASK_REMINDER: '⏰', DEADLINE_RISK: '⚠️', DEPENDENCY_UNBLOCKED: '🔓', DAILY_PLAN: '☀️' };
+const ICON: Record<string, string> = { TASK_REMINDER: '⏰', DEADLINE_RISK: '⚠️', DEPENDENCY_UNBLOCKED: '🔓', DAILY_PLAN: '☀️', CARRIED_OVER: '↪️' };
 
 export function NotificationsBell() {
   const { user } = useAuth();
