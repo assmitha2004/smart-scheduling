@@ -212,6 +212,9 @@ model Task {
   fixedTime        String?      @map("fixed_time")
   /// How many times it was carried over to a later day.
   rolloverCount    Int          @default(0) @map("rollover_count")
+  /// HH:mm window from the day description: not before (e.g. "after lunch") / done by (e.g. "by 5pm").
+  notBefore        String?      @map("not_before")
+  dueBy            String?      @map("due_by")
   createdAt        DateTime     @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt        DateTime     @updatedAt @map("updated_at") @db.Timestamptz(3)
 

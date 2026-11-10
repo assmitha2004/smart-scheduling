@@ -164,3 +164,25 @@ def test_internal_token_is_enforced_when_configured(monkeypatch):
     assert client.post("/_ai/extract-tasks", json=body).status_code == 401
     assert client.post("/_ai/extract-tasks", json=body, headers={"x-internal-token": "nope"}).status_code == 401
     assert client.post("/_ai/extract-tasks", json=body, headers={"x-internal-token": "s3cret"}).status_code == 200
+
+
+def test_understand_day_without_claude_falls_back_to_rules(monkeypatch):
+    monkeypatch.delenv("AI_PROVIDER", raising=False)
+    r = client.post("/understand-day", json={"text": "study 2h", "now": NOW.isoformat(), "allow_external": True})
+    assert r.status_code == 200
+    assert r.json() == {"provider": "rules", "understanding": None}
+
+
+def test_understand_day_with_claude(monkeypatch):
+    from app import day_understanding as du
+    fake = du.DayUnderstanding(date="today", tasks=[
+        du.DayTask(title="Revise maths", minutes=120, minutes_guessed=False, must_do=True, top=True, effort="HARD"),
+        du.DayTask(title="Essay", minutes=60, minutes_guessed=True, must_do=True, top=True, effort="HARD"),
+    ])
+    monkeypatch.setattr(du.llm, "available", lambda: True)
+    monkeypatch.setattr(du.llm, "structured", lambda *a, **k: fake)
+    res = du.understand_day(du.UnderstandDayRequest(text="x", now=NOW, allow_external=True))
+    assert res.provider == "anthropic"
+    assert [t.top for t in res.understanding.tasks] == [True, False]  # only one #1
+    # Without the user's consent Claude is never called.
+    assert du.understand_day(du.UnderstandDayRequest(text="x", now=NOW, allow_external=False)).provider == "rules"

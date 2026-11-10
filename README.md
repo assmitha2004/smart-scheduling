@@ -19,7 +19,7 @@ Turns projects, tasks, estimates and dependencies into a **realistic plan that f
 
 [![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https%3A%2F%2Fgithub.com%2Fassmitha2004%2Fsmart-scheduling&env=DATABASE_URL,JWT_SECRET,AI_SERVICE_TOKEN&envDescription=Postgres%20connection%20string%2C%20a%20long%20random%20JWT%20secret%2C%20and%20a%20random%20token%20shared%20with%20the%20AI%20service&envLink=https%3A%2F%2Fgithub.com%2Fassmitha2004%2Fsmart-scheduling%23%EF%B8%8F-deploy-to-vercel&project-name=smart-scheduling&repository-name=smart-scheduling)
 
-**111 automated tests** · **1,000-task schedule in ~0.6 s** · **p95 API latency < 27 ms** · **0 double-bookings by construction**
+**121 automated tests** · **1,000-task schedule in ~0.6 s** · **p95 API latency < 27 ms** · **0 double-bookings by construction**
 
 <img src="docs/screenshots/dashboard.png" alt="Dashboard with daily briefing, top priorities and capacity" width="900">
 
@@ -36,6 +36,19 @@ Turns projects, tasks, estimates and dependencies into a **realistic plan that f
 - **Preview → approve, always.** Nothing touches the calendar without approval. Replanning after a delay moves only the affected downstream tasks and shows a before/after diff with the finish-date shift.
 - **AI with guardrails.** Natural language → *draft* tasks with dependencies, schema-validated twice (Pydantic + Zod) and rejected item by item. A built-in parser runs by default; Claude is opt-in per user. AI briefings are grounding-checked against engine data.
 - **Production plumbing.** JWT with rotating refresh tokens, role-based workspace access, BullMQ workers (reminders, daily plan at local hour, risk alerts, quiet hours), Socket.IO live updates relayed through Redis, Docker Compose, and GitHub Actions CI.
+
+## 💬 Plan your day from one prompt
+
+Describe your day in your own words, e.g.
+
+> I wake up at 8. Finish my project 2h, it's the most important. Leetcode 1h, gym after lunch, call mom at 7pm and maybe buy groceries if I have time. I focus best in the evening.
+
+`POST /day/understand` reads it and returns tasks, day settings and a plan preview:
+
+- **Built-in understanding** (`backend/src/day/understand.ts`, unit-tested, no API key needed): splits sentences, lists and "and then"; reads durations, set times (`at 7pm`), deadlines (`by 5pm`, `before lunch`), windows (`after lunch`, `in the morning`, `after work`), priorities (`most important`, `must`, `urgent`, `maybe`, `if I have time`), effort (`quick`, `hard`), remarks that refer to the previous task (`…, it's urgent`), wake/bed times, peak focus time and "tomorrow". Leftover tasks from earlier days are added automatically.
+- **Claude** (optional): with `AI_PROVIDER=anthropic` + `ANTHROPIC_API_KEY` on the server and the user's AI consent on, the AI service's `/understand-day` reads the text with structured outputs instead; output is validated in Python and again in the backend, and anything failing falls back to the built-in parser.
+
+The review screen shows **what was understood** (duration, focus level, must-do, top priority, time window, all editable) next to a **live plan preview** that re-plans as you edit. "Something came up?" accepts the same natural language and fits the new task into the day automatically.
 
 ## ☀️ My Day: "I don't know how to plan my day"
 
@@ -131,7 +144,7 @@ flowchart TB
 > - Designed deadline-aware prioritization (deadline propagation + a lateness-minimizing repair pass) and feasibility analysis that quantifies capacity shortfalls and recommends scope, deadline or capacity changes.
 > - Guaranteed conflict-free schedules with optimistic concurrency (stale commits → 409), transactional commits, and a PostgreSQL exclusion constraint that makes overlapping bookings impossible.
 > - Integrated AI task extraction and daily briefings with dual schema validation (Pydantic + Zod), per-item rejection of invalid output, consent-gated external calls and grounding checks.
-> - Delivered async reminders and risk alerts via BullMQ workers and real-time updates via Socket.IO; covered by 111 automated tests plus a Playwright E2E journey, running in Docker Compose with CI.
+> - Delivered async reminders and risk alerts via BullMQ workers and real-time updates via Socket.IO; covered by 121 automated tests plus a Playwright E2E journey, running in Docker Compose with CI.
 
 ---
 

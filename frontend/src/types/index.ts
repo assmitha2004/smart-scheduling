@@ -301,6 +301,8 @@ export interface DayTask {
   top: boolean;
   effort: Effort;
   fixedTime: string | null;
+  notBefore: string | null;
+  dueBy: string | null;
   plannedDate: string | null;
   rolloverCount: number;
   completedAt: string | null;
@@ -328,3 +330,33 @@ export interface DayData {
   progress: { done: number; total: number; minutesDone: number };
 }
 export interface ParsedTask { title: string; minutes: number; minutesGuessed: boolean; effort: Effort; fixedTime: string | null }
+
+/** A task as understood from the day description (editable before saving). */
+export interface DraftDayTask {
+  id?: string;
+  title: string;
+  minutes: number;
+  minutesGuessed?: boolean;
+  mustDo: boolean;
+  top: boolean;
+  effort: Effort;
+  fixedTime: string | null;
+  notBefore?: string | null;
+  dueBy?: string | null;
+  fromEarlier?: boolean;
+}
+export interface DayPreview {
+  items: DayPlanItem[];
+  overflow: { taskId: string; title: string; minutes: number; mustDo: boolean }[];
+  insights: string[];
+  stats: { freeMinutes: number; plannedMinutes: number; taskCount: number; scheduledCount: number };
+}
+export interface DayUnderstanding {
+  date: string;
+  settings: DaySettings;
+  tasks: DraftDayTask[];
+  notes: string[];
+  source: 'ai' | 'rules';
+  aiAvailable: boolean;
+  preview: DayPreview;
+}

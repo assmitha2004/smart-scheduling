@@ -104,3 +104,31 @@ const briefingResponse = z.object({ text: z.string().min(1).max(4000), provider:
 export async function polishBriefing(facts: unknown, allowExternal: boolean) {
   return call('/daily-briefing', { facts, allow_external: allowExternal }, briefingResponse);
 }
+
+const hhmm = z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/);
+export const dayUnderstandingSchema = z.object({
+  date: z.enum(['today', 'tomorrow']),
+  day_start: hhmm.nullable().optional(),
+  day_end: hhmm.nullable().optional(),
+  peak: z.enum(['MORNING', 'AFTERNOON', 'EVENING']).nullable().optional(),
+  tasks: z.array(z.object({
+    title: z.string().trim().min(1).max(120),
+    minutes: z.number().int().min(5).max(720),
+    minutes_guessed: z.boolean(),
+    must_do: z.boolean(),
+    top: z.boolean(),
+    effort: z.enum(['EASY', 'MEDIUM', 'HARD']),
+    fixed_time: hhmm.nullable().optional(),
+    not_before: hhmm.nullable().optional(),
+    due_by: hhmm.nullable().optional(),
+  })).max(30),
+  notes: z.array(z.string().max(300)).max(5).default([]),
+});
+const understandResponse = z.object({ provider: z.string(), understanding: dayUnderstandingSchema.nullable().optional() });
+
+/** Claude's reading of a day description, or null when Claude isn't enabled/allowed (use the rules instead). */
+export async function understandDayWithAi(text: string, now: Date, allowExternal: boolean) {
+  if (!allowExternal) return null;
+  const r = await call('/understand-day', { text, now: now.toISOString(), allow_external: true }, understandResponse);
+  return r.provider === 'anthropic' && r.understanding ? r.understanding : null;
+}

@@ -7,6 +7,8 @@ import { parse } from '../../middleware/validate.js';
 import { currentUser } from '../../middleware/auth.js';
 import { badRequest, notFound } from '../../utils/errors.js';
 import { emitToUser } from '../../realtime/socket.js';
+import { understandClause, understandDay } from '../../day/understand.js';
+import { understandDayWithAi } from '../ai/ai.client.js';
 import {
   compliment,
   fromMin,
@@ -109,6 +111,8 @@ const serializeTask = (t: Task) => ({
   top: t.dayTop,
   effort: (t.effort ?? 'MEDIUM') as Effort,
   fixedTime: t.fixedTime,
+  notBefore: t.notBefore,
+  dueBy: t.dueBy,
   plannedDate: t.plannedDate,
   rolloverCount: t.rolloverCount,
   completedAt: t.completedAt?.toISOString() ?? null,
@@ -150,6 +154,8 @@ const taskSchema = z.object({
   top: z.boolean().default(false),
   effort: z.enum(['EASY', 'MEDIUM', 'HARD']).default('MEDIUM'),
   fixedTime: hm.nullable().optional(),
+  notBefore: hm.nullable().optional(),
+  dueBy: hm.nullable().optional(),
 });
 const settingsSchema = z.object({ dayStart: hm, dayEnd: hm, peak: z.enum(['MORNING', 'AFTERNOON', 'EVENING']) });
 const planSchema = z.object({
@@ -206,6 +212,8 @@ async function planAndSave(u: User, date: string, settings: Settings, input: Tas
       top: t.top,
       effort: t.effort,
       fixedTime: t.planFixedTime ?? t.fixedTime ?? null,
+      notBefore: t.planFixedTime ? null : t.notBefore ?? null,
+      dueBy: t.planFixedTime ? null : t.dueBy ?? null,
       fromEarlier: !!(t.id && byId.get(t.id)?.plannedDate && byId.get(t.id)!.plannedDate! < date),
     })),
   });
@@ -231,6 +239,8 @@ async function planAndSave(u: User, date: string, settings: Settings, input: Tas
         dayTop: t.top,
         effort: t.effort,
         fixedTime: t.fixedTime ?? null,
+        notBefore: t.notBefore ?? null,
+        dueBy: t.dueBy ?? null,
         priority: (t.top ? 'URGENT' : t.mustDo ? 'HIGH' : 'MEDIUM') as Task['priority'],
         plannedDate: moved ? tomorrow : date,
       };
@@ -270,6 +280,69 @@ dayRouter.post('/parse', async (req, res) => {
   res.json({ tasks: parseBrainDump(text) });
 });
 
+/**
+ * POST /day/understand — "Tell me about your day": reads the description
+ * (Claude when enabled and allowed, otherwise the built-in parser), adds
+ * leftovers from earlier days, and returns the tasks, settings and a preview.
+ */
+dayRouter.post('/understand', async (req, res) => {
+  const u = await loadUser(req);
+  const body = parse(z.object({ text: z.string().trim().min(1, 'Tell me what you need to do').max(5000), date: z.string().regex(DATE_RE).optional() }), req.body);
+  let source: 'ai' | 'rules' = 'rules';
+  let understood = understandDay(body.text);
+  const notes: string[] = [];
+  try {
+    const ai = await understandDayWithAi(body.text, new Date(), u.aiExternalConsent);
+    if (ai) {
+      source = 'ai';
+      understood = {
+        date: ai.date,
+        settings: { dayStart: ai.day_start ?? undefined, dayEnd: ai.day_end ?? undefined, peak: ai.peak ?? undefined },
+        tasks: ai.tasks.map((t) => ({ title: t.title, minutes: t.minutes, minutesGuessed: t.minutes_guessed, mustDo: t.must_do, top: t.top, effort: t.effort, fixedTime: t.fixed_time ?? null, notBefore: t.not_before ?? null, dueBy: t.due_by ?? null })),
+        notes: ai.notes,
+      };
+    }
+  } catch {
+    if (u.aiExternalConsent) notes.push('Claude wasn’t reachable, so I used the built-in planner to read your day.');
+  }
+  if (!understood.tasks.length) throw badRequest('I couldn’t find any tasks in that. Try listing what you need to do, like “study 2h, gym, call mom at 7pm”.');
+
+  const today = localNow(u).toISODate()!;
+  const date = body.date ?? (understood.date === 'tomorrow' ? nextDate(u, today) : today);
+  const defaults = defaultSettings(u, date);
+  const settings: Settings = {
+    dayStart: understood.settings.dayStart && (date !== today || understood.settings.dayStart > defaults.dayStart) ? understood.settings.dayStart : defaults.dayStart,
+    dayEnd: understood.settings.dayEnd ?? defaults.dayEnd,
+    peak: understood.settings.peak ?? defaults.peak,
+  };
+  if (toMin(settings.dayEnd) <= toMin(settings.dayStart) + 15) settings.dayEnd = defaults.dayEnd;
+
+  // Keep what's already planned for that day and anything left over, unless it was mentioned again.
+  const [existing, leftovers] = await Promise.all([
+    prisma.task.findMany({ where: { assigneeId: u.id, plannedDate: date, status: { not: 'DONE' } }, orderBy: { createdAt: 'asc' } }),
+    date === today ? prisma.task.findMany({ where: { assigneeId: u.id, plannedDate: { lt: date }, status: { in: ['TODO', 'IN_PROGRESS'] } }, take: 20 }) : Promise.resolve([] as Task[]),
+  ]);
+  const said = new Map(understood.tasks.map((t) => [t.title.toLowerCase(), t]));
+  const tasks: (TaskIn & { minutesGuessed?: boolean; fromEarlier?: boolean })[] = [];
+  for (const t of [...existing, ...leftovers]) {
+    const again = said.get(t.title.toLowerCase());
+    if (again) said.delete(t.title.toLowerCase());
+    const src = again ?? null;
+    tasks.push({
+      id: t.id, title: t.title, minutes: src?.minutes ?? t.estimatedMinutes, mustDo: src?.mustDo ?? (t.mustDo || t.plannedDate! < date), top: src?.top ?? t.dayTop,
+      effort: (src?.effort ?? t.effort ?? 'MEDIUM') as Effort, fixedTime: src?.fixedTime ?? t.fixedTime, notBefore: src?.notBefore ?? t.notBefore, dueBy: src?.dueBy ?? t.dueBy,
+      fromEarlier: t.plannedDate! < date,
+    });
+  }
+  for (const t of said.values()) tasks.push({ ...t });
+  if (tasks.filter((t) => t.top).length > 1) { let seen = false; for (const t of tasks) { if (t.top && seen) t.top = false; seen ||= t.top; } }
+  const carried = tasks.filter((t) => t.fromEarlier).length;
+  if (carried) notes.push(`I added ${carried} task${carried > 1 ? 's' : ''} left over from before.`);
+
+  const { preview } = (await planAndSave(u, date, settings, tasks, [], true)) as { preview: unknown };
+  res.json({ date, settings, tasks, notes: [...understood.notes, ...notes], source, aiAvailable: u.aiExternalConsent, preview });
+});
+
 /** POST /day/plan — plan (or preview with dryRun) the day from the answers. */
 dayRouter.post('/plan', async (req, res) => {
   const u = await loadUser(req);
@@ -279,10 +352,8 @@ dayRouter.post('/plan', async (req, res) => {
 });
 
 /** POST /day/replan — re-plans the rest of the day from now, e.g. after "I need more time". */
-dayRouter.post('/replan', async (req, res) => {
-  const u = await loadUser(req);
-  const body = parse(z.object({ date: z.string().regex(DATE_RE).optional(), extend: z.object({ taskId: z.string().uuid(), minutes: z.number().int().min(5).max(240) }).optional() }), req.body ?? {});
-  const date = resolveDate(u, body.date);
+/** Re-plans the open tasks of a day from now, keeping tasks in progress going. */
+async function replanDay(u: User, date: string, extend?: { taskId: string; minutes: number }) {
   const plan = await prisma.dayPlan.findUnique({ where: { userId_date: { userId: u.id, date } } });
   const settings = (plan?.settings as unknown as Settings | undefined) ?? defaultSettings(u, date);
   const tasks = await prisma.task.findMany({ where: { assigneeId: u.id, plannedDate: date, status: { not: 'DONE' } }, orderBy: { createdAt: 'asc' } });
@@ -301,25 +372,37 @@ dayRouter.post('/replan', async (req, res) => {
       planMinutes = Math.max(5, current.filter((i) => i.end > nowMin).reduce((sum, i) => sum + i.end - Math.max(i.start, nowMin), 0));
       planFixedTime = fromMin(Math.ceil(nowMin / 5) * 5);
     }
-    if (body.extend?.taskId === t.id) {
-      minutes = Math.min(720, minutes + body.extend.minutes);
-      planMinutes = Math.min(720, (planMinutes ?? t.estimatedMinutes) + body.extend.minutes);
+    if (extend?.taskId === t.id) {
+      minutes = Math.min(720, minutes + extend.minutes);
+      planMinutes = Math.min(720, (planMinutes ?? t.estimatedMinutes) + extend.minutes);
     }
-    return { id: t.id, title: t.title, minutes, planMinutes, planFixedTime, mustDo: t.mustDo, top: t.dayTop, effort: (t.effort ?? 'MEDIUM') as Effort, fixedTime: t.fixedTime };
+    return { id: t.id, title: t.title, minutes, planMinutes, planFixedTime, mustDo: t.mustDo, top: t.dayTop, effort: (t.effort ?? 'MEDIUM') as Effort, fixedTime: t.fixedTime, notBefore: t.notBefore, dueBy: t.dueBy };
   });
-  res.json(await planAndSave(u, date, settings, input, [], false));
+  return planAndSave(u, date, settings, input, [], false);
+}
+
+dayRouter.post('/replan', async (req, res) => {
+  const u = await loadUser(req);
+  const body = parse(z.object({ date: z.string().regex(DATE_RE).optional(), extend: z.object({ taskId: z.string().uuid(), minutes: z.number().int().min(5).max(240) }).optional() }), req.body ?? {});
+  res.json(await replanDay(u, resolveDate(u, body.date), body.extend));
 });
 
-/** POST /day/tasks — quick-add one task to a day (it waits for "fit it in"). */
+/** POST /day/tasks — add something that came up ("call bank at 4", "gym after work") and fit it into the plan. */
 dayRouter.post('/tasks', async (req, res) => {
   const u = await loadUser(req);
-  const body = parse(z.object({ date: z.string().regex(DATE_RE).optional(), text: z.string().trim().min(1).max(300) }), req.body);
+  const body = parse(z.object({ date: z.string().regex(DATE_RE).optional(), text: z.string().trim().min(1).max(300), fit: z.boolean().default(true) }), req.body);
   const date = resolveDate(u, body.date);
-  const parsed = parseTaskLine(body.text);
-  if (!parsed) throw badRequest('Type what you need to do');
+  const t = understandClause(body.text) ?? (() => { const p = parseTaskLine(body.text); return p && { ...p, mustDo: false, top: false, notBefore: null, dueBy: null }; })();
+  if (!t) throw badRequest('Type what you need to do');
   const projectId = await myDayProject(u.id);
-  await prisma.task.create({ data: { projectId, assigneeId: u.id, title: parsed.title, estimatedMinutes: parsed.minutes, effort: parsed.effort, fixedTime: parsed.fixedTime, plannedDate: date } });
-  res.status(201).json({ day: await dayPayload(u, date), parsed });
+  await prisma.task.create({ data: { projectId, assigneeId: u.id, title: t.title, estimatedMinutes: t.minutes, effort: t.effort, fixedTime: t.fixedTime, notBefore: t.notBefore, dueBy: t.dueBy, mustDo: t.mustDo, plannedDate: date } });
+  const hasPlan = await prisma.dayPlan.count({ where: { userId: u.id, date } });
+  if (body.fit && hasPlan && date >= localNow(u).toISODate()!) {
+    const r = await replanDay(u, date);
+    res.status(201).json({ ...r, parsed: t });
+    return;
+  }
+  res.status(201).json({ day: await dayPayload(u, date), parsed: t });
 });
 
 async function ownDayTask(u: User, id: string) {

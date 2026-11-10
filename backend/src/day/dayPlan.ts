@@ -34,6 +34,8 @@ export interface DayTaskInput {
   effort: Effort;
   fixedTime: string | null; // HH:mm, must start then
   fromEarlier?: boolean; // carried over from a previous day
+  notBefore?: string | null; // HH:mm, e.g. "after lunch"
+  dueBy?: string | null; // HH:mm, e.g. "by 5pm"
 }
 
 export interface Busy {
@@ -248,19 +250,31 @@ export function planDay(input: PlanDayInput): DayPlanResult {
   for (const t of ordered) {
     // Try the task in one go (or sessions of maxSession); if no gap is big
     // enough, try shorter sessions before giving up on today.
-    const tries = [maxSession, 45, 30].filter((m, i) => i === 0 || (m < maxSession && t.minutes > m && !t.fixedTime));
+    const sizes = [maxSession, 45, 30].filter((m, i) => i === 0 || (m < maxSession && t.minutes > m && !t.fixedTime));
+    const lo = t.notBefore ? toMin(t.notBefore) : 0;
+    const hi = t.dueBy ? toMin(t.dueBy) : 1440;
+    const constrained = lo > 0 || hi < 1440;
+    // Respect "after lunch" / "by 5pm" first; only if impossible, place it anyway and say so.
+    const tries: { size: number; lo: number; hi: number }[] = [
+      ...sizes.map((size) => ({ size, lo, hi })),
+      ...(constrained ? sizes.map((size) => ({ size, lo: 0, hi: 1440 })) : []),
+    ];
+    let usedLo = lo;
+    let usedHi = hi;
     let chunks: number[] = [];
     let placed: Iv[] = [];
     let saved = free;
-    for (const size of tries) {
+    for (const { size, lo: tryLo, hi: tryHi } of tries) {
+      usedLo = tryLo;
+      usedHi = tryHi;
       chunks = sessions(t.minutes, size);
       placed = [];
       saved = free;
-      let notBefore = dayStart;
+      let notBefore = Math.max(dayStart, tryLo);
       for (const len of chunks) {
         let best: { start: number; score: number } | null = null;
         for (const [s, e] of saved) {
-          for (let start = Math.max(s, notBefore); start + len <= e; start += 15) {
+          for (let start = Math.max(s, notBefore); start + len <= Math.min(e, tryHi); start += 15) {
             const mid = start + len / 2;
             const energy = energyAt(input.peak, mid);
             const fit = t.effort === 'HARD' ? energy : t.effort === 'EASY' ? (10 - energy) * 0.6 : 5;
@@ -276,6 +290,9 @@ export function planDay(input: PlanDayInput): DayPlanResult {
       }
       if (placed.length === chunks.length) break;
     }
+    if (placed.length === chunks.length && constrained && (usedLo !== lo || usedHi !== hi)) {
+      insights.push(`I couldn’t fit “${t.title}” ${t.dueBy && t.notBefore ? `between ${fmtClock(lo)} and ${fmtClock(hi)}` : t.dueBy ? `before ${fmtClock(hi)}` : `after ${fmtClock(lo)}`}, so I put it at the closest free time.`);
+    }
     if (placed.length < chunks.length) {
       overflow.push({ taskId: t.id, title: t.title, minutes: t.minutes, mustDo: t.mustDo || t.top });
       continue;
@@ -284,6 +301,9 @@ export function planDay(input: PlanDayInput): DayPlanResult {
     placed.forEach(([s, e], i) => {
       const energy = energyAt(input.peak, (s + e) / 2);
       const reason = t.top ? '⭐ Your #1 priority, placed while you’re fresh'
+        : t.dueBy && t.notBefore && usedHi === hi && usedLo === lo ? `🕑 Between ${fmtClock(lo)} and ${fmtClock(hi)}, like you said`
+        : t.dueBy && usedHi === hi ? `🎯 Done before ${fmtClock(hi)}, like you said`
+        : t.notBefore && usedLo === lo ? `🕑 After ${fmtClock(lo)}, like you said`
         : t.fromEarlier ? '↩️ Left over from before, so it comes early today'
         : t.mustDo ? '📌 Must get done today'
         : t.effort === 'HARD' && energy >= 8 ? '🧠 Needs your full brain, so it’s at your best time'

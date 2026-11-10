@@ -117,3 +117,23 @@ describe('fitting must-dos into small gaps', () => {
     noOverlap(r);
   });
 });
+
+describe('time windows from the prompt', () => {
+  it('respects "after lunch" and "by 5pm"', () => {
+    const r = planDay({
+      dayStart: toMin('09:00'), dayEnd: toMin('21:00'), peak: 'MORNING',
+      busy: [{ title: 'Lunch', start: toMin('13:00'), end: toMin('13:45'), kind: 'BREAK' }],
+      tasks: [task('groceries', 45, { effort: 'EASY', notBefore: '14:00' }), task('report', 120, { effort: 'HARD', mustDo: true, dueBy: '17:00' })],
+    });
+    const g = tasksOf(r).find((i) => i.taskId === 'groceries')!;
+    expect(g.start).toBeGreaterThanOrEqual(toMin('14:00'));
+    expect(tasksOf(r).filter((i) => i.taskId === 'report').every((i) => i.end <= toMin('17:00'))).toBe(true);
+    expect(g.reason).toContain('After 2pm');
+  });
+
+  it('places a task anyway (and says so) when its window is impossible', () => {
+    const r = planDay({ dayStart: toMin('18:00'), dayEnd: toMin('22:00'), peak: 'EVENING', busy: [], tasks: [task('emails', 30, { dueBy: '12:00' })] });
+    expect(tasksOf(r)).toHaveLength(1);
+    expect(r.insights.join(' ')).toContain('couldn’t fit “emails” before 12pm');
+  });
+});
