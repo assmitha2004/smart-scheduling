@@ -99,6 +99,7 @@ const DURATION_RE = /(?:\bfor\s+)?(?:(\d+(?:\.\d+)?)\s*(?:h|hr|hrs|hour|hours)\b
 const TIME_RE = /\b(?:at|@)\s*(\d{1,2})(?::(\d{2}))?\s*(am|pm)?\b|\b(\d{1,2})(?::(\d{2}))\s*(am|pm)?\b|\b(\d{1,2})\s*(am|pm)\b/i;
 
 const GUESSES: [RegExp, number, Effort][] = [
+  [/\b(leetcode|dsa|coding problems?|practice problems?|mock test)\b/i, 60, 'HARD'],
   [/\b(exam|revise|revision|study|studying|learn|homework|assignment|essay|thesis|report|presentation|slides|project|code|coding|debug|research|write|writing|draft|prepare|practice problems?)\b/i, 90, 'HARD'],
   [/\b(gym|workout|work out|run|running|exercise|yoga|swim|football|cricket|sports?)\b/i, 60, 'MEDIUM'],
   [/\b(meeting|class|lecture|interview|appointment)\b/i, 60, 'MEDIUM'],
@@ -109,7 +110,9 @@ const GUESSES: [RegExp, number, Effort][] = [
 ];
 
 export function guessTask(title: string): { minutes: number; effort: Effort } {
-  for (const [re, minutes, effort] of GUESSES) if (re.test(title)) return { minutes, effort };
+  // Also try base forms: "calling" -> "call", "emails" -> "email".
+  const variants = [title, title.replace(/(\w{3,})ing\b/gi, '$1'), title.replace(/(\w{3,})s\b/gi, '$1')];
+  for (const [re, minutes, effort] of GUESSES) if (variants.some((v) => re.test(v))) return { minutes, effort };
   return { minutes: 30, effort: 'MEDIUM' };
 }
 

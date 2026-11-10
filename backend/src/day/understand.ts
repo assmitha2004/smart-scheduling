@@ -82,15 +82,23 @@ const PARTS: Record<string, [string, string]> = {
 const VERBS = 'finish|complete|do|study|revise|review|read|write|work|prepare|practice|practise|reply|answer|email|buy|clean|cook|go|gym|call|phone|text|meet|attend|submit|send|pay|wash|walk|run|exercise|plan|update|fix|build|code|solve|learn|watch|start|make|take|pick|drop|visit|book|order|apply|edit|record|draw|design|test|deploy|organise|organize|tidy|pack|meditate|journal|leetcode|grocery|groceries|laundry|shower|nap|play|practice';
 const AND_SPLIT = new RegExp(String.raw`\s+(?:and\s+then|and|then|also|plus|after that|afterwards)\s+(?=(?:i\s+(?:need|have|want|must|should|will|gotta)\s+to\s+|i(?:'ll| will)?\s+|maybe\s+|also\s+|to\s+)?(?:${VERBS})\b)`, 'i');
 
+const NOUNS = 'assignments?|projects?|reports?|homework|essays?|presentations?|slides|labs?|exams?|revision|notes|laundry|groceries|grocery|shopping|leetcode|dsa|emails?|mails|gym|workout|dishes|cooking|cleaning|reading|coding|interview|meeting|class|lecture|resume|portfolio|thesis|research|practice|tasks?|work';
+const NOUN_AND = new RegExp(String.raw`\s+(?:and|&)\s+(?=(?:(?:my|the|a|an|some|that)\s+)?(?:[\w-]+\s+){0,2}(?:${NOUNS})\b)`, 'i');
+
 export function splitClauses(text: string): string[] {
   return text
     .replace(/\r/g, '')
+    // "I have so many things: a, b, c" / "my tasks today are a, b" -> just the list
+    .replace(/(^|[.!?\n]\s*)(?:i\s+(?:have|'ve got|have got|got)\s+)?(?:so\s+)?(?:many|a lot of|lots of|a bunch of|tons of|some|these|the following|few)?\s*(?:things|tasks|work|stuff|jobs|items)(?:\s+(?:to do|today|tomorrow|pending|left))*\s*(?::|-|are|is|like)\s*/gi, '$1')
+    .replace(/(^|[.!?\n]\s*)my\s+(?:tasks|to-?do(?:\s+list)?|work|plan)\s+(?:for\s+)?(?:today|tomorrow)?\s*(?:is|are|:)\s*/gi, '$1')
     .split(/\n+|[.!?;]+(?=\s|$)|\s*,\s*(?:and\s+)?/)
     .flatMap((c) => {
       const out: string[] = [];
       let rest = c;
       for (let guard = 0; guard < 10; guard++) {
-        const m = AND_SPLIT.exec(rest);
+        const a = AND_SPLIT.exec(rest);
+        const b = NOUN_AND.exec(rest);
+        const m = a && b ? (a.index <= b.index ? a : b) : a ?? b;
         if (!m) break;
         out.push(rest.slice(0, m.index));
         rest = rest.slice(m.index + m[0].length);
@@ -127,7 +135,7 @@ function readSettings(text: string, out: Understanding) {
 const SETTINGS_ONLY = /^(?:i\s+)?(?:usually\s+)?(?:wake(?:\s+up)?|get\s+up|sleep|go\s+to\s+bed|i'?m\s+(?:a\s+)?(?:morning person|night owl|early bird)|(?:i\s+)?(?:focus|work|study|think)\s+best|i'?m\s+free|i\s+am\s+free|free\s+(?:from|until)|available|my\s+day\s+(?:starts|ends)|start\s+my\s+day|end\s+my\s+day)\b/i;
 
 // ---------- one clause → one task ----------
-const FILLER_START = /^(?:(?:and|then|also|plus|so|but|after that|afterwards|finally|oh|ok|okay|today|tomorrow|tonight|i|i'll|i will|i'd like to|i would like to|i need to|i have to|i want to|i must|i should|i gotta|i've got to|need to|have to|want to|must|should|gotta|got to|let me|please|try to|maybe|probably|also need to|then i|and i|i also|to)\s+)+/i;
+const FILLER_START = /^(?:(?:and|then|also|plus|so|but|after that|afterwards|finally|oh|ok|okay|today|tomorrow|tonight|i|i'll|i will|i'd like to|i would like to|i need to|i have to|i want to|i must|i should|i gotta|i've got to|i've got|i have got|i have|i've|i got|there'?s|there is|there are|need to|have to|want to|must|should|gotta|got to|have|let me|please|try to|maybe|probably|also need to|then i|and i|i also|to|do|work on)\s+)+/i;
 const FILLER_END = /\s+(?:too|as well|also|today|tomorrow|tonight|please|if possible|if i (?:have|get|can find) (?:the )?time|if there'?s time|if time permits|if i can|at some point|sometime)\s*$/i;
 
 function stripPhrase(text: string, m: RegExpExecArray | null): string {
@@ -139,6 +147,9 @@ export function understandClause(raw: string): UnderstoodTask | null {
   const lower = text.toLowerCase();
   if (!text || SETTINGS_ONLY.test(text)) return null;
   if (/^(?:i\s+(?:have|got)\s+(?:a\s+)?(?:lot|bunch|many things)|that'?s\s+(?:it|all)|thanks|thank you|help me|plan my day|please plan|my day)\b/i.test(text)) return null;
+  // Feelings and requests, not tasks: "I don't know how to organise it", "no idea where to start".
+  if (/\b(?:(?:don'?t|do not|dont)\s+know|no idea|not sure|confused|overwhelmed|stressed|organi[sz]e (?:it|them|this|my)|where to start|what to do first|how to (?:plan|organi[sz]e|manage|schedule)|help me|can you|please (?:plan|help|organi[sz]e|schedule)|plan (?:it|this|my day)|sort (?:it|this) out)\b/i.test(text)
+      && !/\b\d+\s*(?:h|hr|hrs|hours?|m|mins?|minutes?)\b/i.test(text)) return null;
 
   const top = /\b(most important|top priority|(?:my\s+)?(?:main|biggest|#?1|number one|first)\s+(?:priority|thing|task)|priority\s*(?:#|no\.?|number)?\s*1|before anything else|first thing)\b/i.test(lower);
   const optional = /\b(maybe|if (?:i (?:have|get|can find) (?:the )?)?time|if there'?s time|if possible|optional|if i can|not urgent|nice to have|could)\b/i.test(lower);

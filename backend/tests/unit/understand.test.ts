@@ -47,3 +47,13 @@ describe('understanding a day described in words', () => {
     expect(u.notes[0]).toContain('estimated');
   });
 });
+
+describe('"I have all this to do and I don’t know how to organise it"', () => {
+  it('pulls the tasks out of a vague list and ignores the feelings', () => {
+    const u = understandDay("I have so many things: emails, report, gym, calling the bank. No idea where to start, please help me organise my day");
+    expect(u.tasks.map((t) => t.title)).toEqual(['Emails', 'Report', 'Gym', 'Calling the bank']);
+    const v = understandDay("i have to do my dbms assignment and os project and also cook and clean my room. I don't know how to organise it");
+    expect(v.tasks.map((t) => t.title)).toEqual(['Dbms assignment', 'Os project', 'Cook', 'Clean my room']);
+    expect(v.tasks.slice(0, 2).every((t) => t.effort === 'HARD')).toBe(true);
+  });
+});
