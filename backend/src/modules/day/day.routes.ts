@@ -9,7 +9,9 @@ import { badRequest, notFound } from '../../utils/errors.js';
 import { emitToUser } from '../../realtime/socket.js';
 import { understandClause, understandDay, type Commitment, type FreeWindow } from '../../day/understand.js';
 import { applyFeedback, sameTask } from '../../day/feedback.js';
-import { understandDayWithAi } from '../ai/ai.client.js';
+import { planChatWithAi, understandDayWithAi } from '../ai/ai.client.js';
+import { expandProgram, mealsFor, planExpandedDay, plannedOn, endDate, MAX_DAYS, type ProgramSpec } from '../../day/program.js';
+import { chatPreview, chatTurn, emptySpec, fillDefaults, type ChatContext, type ChatDraft } from '../../day/planChat.js';
 import {
   compliment,
   fromMin,
@@ -155,7 +157,19 @@ async function dayPayload(u: User, date: string) {
     prisma.task.count({ where: { assigneeId: u.id, plannedDate: nextDate(u, date), status: { not: 'DONE' } } }),
   ]);
   const done = tasks.filter((t) => t.status === 'DONE').length;
+  const programs = await programsOn(u.id, date);
+  // A later day of a multi-day plan, not started yet: show what it will look like.
+  let projected: { items: PlanItem[]; insights: string[]; overflow: { title: string; minutes: number }[] } | null = null;
+  if (!plan && programs.length && date > localNow(u).toISODate()!) {
+    const day = combinedDay(programs, date);
+    if (day && day.tasks.length) {
+      const r = planExpandedDay(day, { busy: mealsFor(day.settings, mealsOf(u)) });
+      projected = { items: r.items, insights: r.insights, overflow: r.overflow.map((o) => ({ title: o.title, minutes: o.minutes })) };
+    }
+  }
   return {
+    programs: programs.map((p) => programInfo(p, date)),
+    projected,
     date,
     today: localNow(u).toISODate(),
     timezone: u.timezone,
@@ -315,7 +329,10 @@ async function planAndSave(u: User, date: string, settings: Settings, input: Tas
 /** GET /day?date=YYYY-MM-DD — the day's plan, tasks, leftovers and progress. */
 dayRouter.get('/', async (req, res) => {
   const u = await loadUser(req);
-  res.json(await dayPayload(u, resolveDate(u, req.query.date)));
+  const date = resolveDate(u, req.query.date);
+  // Today's part of a multi-day plan becomes real tasks the first time today is opened.
+  if (isToday(u, date)) await materialize(u, date);
+  res.json(await dayPayload(u, date));
 });
 
 /** POST /day/parse — turns free text (one task per line) into tasks with guessed times. */
@@ -555,4 +572,280 @@ dayRouter.post('/feedback', async (req, res) => {
   const deferIds = r.removed.filter((x) => x.tomorrow && x.task.id).map((x) => x.task.id!);
   const saved = await planAndSave(u, date, r.settings as Settings, r.tasks.map((t) => ({ ...t, notBefore: t.notBefore ?? null, dueBy: t.dueBy ?? null })), removeIds, false, deferIds) as { day: unknown; moved: string[]; changed: number };
   res.json({ ...saved, changes: r.changes, notUnderstood: r.notUnderstood, help: null });
+});
+
+// ======================================================================
+// Multi-day plans: the planner chat, finalising, and progress over time.
+// ======================================================================
+type Program = Awaited<ReturnType<typeof prisma.planProgram.findMany>>[number];
+
+const mealsOf = (u: User) => {
+  const meals = ((u.lifeProfile ?? {}) as LifeProfileLite).meals;
+  const lunch = meals?.lunch === undefined ? '13:00' : meals.lunch;
+  const dinner = meals?.dinner === undefined ? '20:00' : meals.dinner;
+  return [
+    ...(lunch ? [{ title: 'Lunch', start: lunch, minutes: 45 }] : []),
+    ...(dinner ? [{ title: 'Dinner', start: dinner, minutes: 45 }] : []),
+  ];
+};
+
+function programsOn(userId: string, date: string) {
+  return prisma.planProgram.findMany({ where: { userId, status: 'ACTIVE', startDate: { lte: date }, endDate: { gte: date } }, orderBy: { createdAt: 'asc' } });
+}
+
+function programInfo(p: Program, date?: string) {
+  const spec = p.spec as unknown as ProgramSpec;
+  const totalDays = spec.days ?? 1;
+  const dayNumber = date ? Math.round(DateTime.fromISO(date).diff(DateTime.fromISO(p.startDate), 'days').days) + 1 : null;
+  return { id: p.id, title: p.title, startDate: p.startDate, endDate: p.endDate, totalDays, dayNumber, status: p.status, createdAt: p.createdAt.toISOString() };
+}
+
+/** What all active plans put on a date, combined into one day (the newest plan's settings win). */
+function combinedDay(programs: Program[], date: string) {
+  let out: ReturnType<typeof expandProgram>[number] | null = null;
+  for (const p of programs) {
+    const d = expandProgram(p.spec as unknown as ProgramSpec).find((x) => x.date === date);
+    if (!d) continue;
+    if (!out) { out = { ...d, tasks: [...d.tasks] }; continue; }
+    const commitments: { title: string; start: string; end: string }[] = [...(out.settings.commitments ?? []), ...(d.settings.commitments ?? [])];
+    out = { ...d, settings: { ...d.settings, ...(commitments.length ? { commitments } : {}) }, tasks: [...out.tasks, ...d.tasks.filter((t) => !out!.tasks.some((x) => sameTask(x.title, t.title)))] };
+  }
+  if (out) { let top = false; for (const t of out.tasks) { if (t.top && top) t.top = false; top ||= t.top; } }
+  return out;
+}
+
+/**
+ * Turns the plans' tasks for a date into real tasks and a saved day plan,
+ * together with what's already on that day and anything left over from before.
+ * Each plan does this once per date.
+ */
+async function materialize(u: User, date: string, programIds?: string[]): Promise<boolean> {
+  const all = await programsOn(u.id, date);
+  const fresh = all.filter((p) => !(p.days as Record<string, unknown>)[date] && (!programIds || programIds.includes(p.id)));
+  if (!fresh.length) return false;
+  // Claim the date first so two requests at once don't add the tasks twice.
+  const claimed: Program[] = [];
+  for (const p of fresh) {
+    const r = await prisma.planProgram.updateMany({ where: { id: p.id, updatedAt: p.updatedAt }, data: { days: { ...(p.days as Record<string, unknown>), [date]: true } as Prisma.InputJsonValue } });
+    if (r.count) claimed.push(p);
+  }
+  const day = combinedDay(claimed, date);
+  if (!day || !day.tasks.length) return claimed.length > 0;
+
+  const [existing, leftovers, plan] = await Promise.all([
+    prisma.task.findMany({ where: { assigneeId: u.id, plannedDate: date, status: { not: 'DONE' } }, orderBy: { createdAt: 'asc' } }),
+    prisma.task.findMany({ where: { assigneeId: u.id, plannedDate: { lt: date }, status: { in: ['TODO', 'IN_PROGRESS'] } }, take: 20 }),
+    prisma.dayPlan.findUnique({ where: { userId_date: { userId: u.id, date } } }),
+  ]);
+  const input: TaskIn[] = [...existing, ...leftovers].map((t) => ({
+    id: t.id, title: t.title, minutes: t.estimatedMinutes, mustDo: t.mustDo || t.plannedDate! < date, top: t.dayTop, effort: (t.effort ?? 'MEDIUM') as Effort,
+    fixedTime: t.fixedTime, notBefore: t.notBefore, dueBy: t.dueBy,
+  }));
+  for (const t of day.tasks) {
+    if (input.some((x) => sameTask(x.title, t.title))) continue;
+    input.push({ title: t.title, minutes: t.minutes, mustDo: t.mustDo, top: t.top, effort: t.effort, fixedTime: t.fixedTime, notBefore: t.notBefore ?? null, dueBy: t.dueBy ?? null });
+  }
+  if (input.filter((t) => t.top).length > 1) { let seen = false; for (const t of input) { if (t.top && seen) t.top = false; seen ||= t.top; } }
+  const prev = plan?.settings as unknown as Settings | undefined;
+  const settings: Settings = { ...(day.settings as Settings), ...(prev?.commitments && !day.settings.commitments ? { commitments: prev.commitments } : {}) };
+  try {
+    await planAndSave(u, date, settings, input.slice(0, 40), [], false);
+  } catch {
+    // Too late in the day to plan: keep the tasks on the day anyway.
+    const projectId = await myDayProject(u.id);
+    for (const t of input.filter((x) => !x.id)) {
+      await prisma.task.create({ data: { projectId, assigneeId: u.id, title: t.title, estimatedMinutes: t.minutes, effort: t.effort, fixedTime: t.fixedTime ?? null, notBefore: t.notBefore ?? null, dueBy: t.dueBy ?? null, mustDo: t.mustDo, dayTop: t.top, plannedDate: date } });
+    }
+  }
+  return true;
+}
+
+function chatContext(u: User): ChatContext {
+  const n = localNow(u);
+  const today = n.toISODate()!;
+  const routine = defaultSettings(u, nextDate(u, today));
+  return { today, nowMin: n.hour * 60 + n.minute, defaults: { dayStart: routine.dayStart, dayEnd: routine.dayEnd, peak: routine.peak }, meals: mealsOf(u) };
+}
+
+const DATE = z.string().regex(DATE_RE);
+const weekday = z.number().int().min(1).max(7);
+const programTaskSchema = z.object({
+  key: z.string().trim().min(1).max(64),
+  title: z.string().trim().min(1).max(200),
+  minutes: z.number().int().min(5).max(720),
+  minutesGuessed: z.boolean().optional(),
+  effort: z.enum(['EASY', 'MEDIUM', 'HARD']).default('MEDIUM'),
+  top: z.boolean().default(false),
+  mustDo: z.boolean().default(false),
+  fixedTime: hm.nullable().default(null),
+  notBefore: hm.nullable().default(null),
+  dueBy: hm.nullable().default(null),
+  repeat: z.enum(['ONCE', 'DAILY', 'WEEKDAYS', 'WEEKENDS', 'DAYS', 'WEEKLY']).nullable().default(null),
+  days: z.array(weekday).max(7).optional(),
+  timesPerWeek: z.number().int().min(1).max(7).optional(),
+  date: DATE.nullable().optional(),
+  until: DATE.nullable().optional(),
+  totalMinutes: z.number().int().min(15).max(200_000).nullable().optional(),
+});
+export const programSpecSchema = z.object({
+  title: z.string().trim().max(120).default(''),
+  startDate: DATE.nullable(),
+  days: z.number().int().min(1).max(MAX_DAYS).nullable(),
+  sameEveryDay: z.boolean().nullable().default(null),
+  dayStart: hm,
+  dayEnd: hm,
+  peak: z.enum(['MORNING', 'AFTERNOON', 'EVENING']),
+  breaks: z.enum(['SHORT', 'NORMAL', 'LONG']).optional(),
+  maxSession: z.number().int().min(20).max(240).optional(),
+  commitments: z.array(z.object({ title: z.string().trim().min(1).max(80), start: hm, end: hm, days: z.array(weekday).min(1).max(7) })).max(20).default([]),
+  windows: z.array(z.object({ start: hm, end: hm, light: z.boolean().default(false), days: z.array(weekday).min(1).max(7) })).max(20).default([]),
+  restDays: z.array(weekday).max(6).default([]),
+  tasks: z.array(programTaskSchema).max(40).default([]),
+});
+const questionSchema = z.object({ id: z.string().max(100), text: z.string().max(500), options: z.array(z.string().max(120)).max(8) });
+const draftSchema = z.object({ spec: programSpecSchema, pending: questionSchema.nullable().default(null), asked: z.array(z.string().max(100)).max(200).default([]), ready: z.boolean().default(false) });
+
+/**
+ * POST /day/plan-chat — one turn of the planner chat. Send the message and the
+ * draft from the last turn; get a reply, the next question (with quick
+ * answers), suggestions, the updated draft and a preview of the schedule.
+ * Uses Claude when enabled and allowed, otherwise the built-in chat.
+ */
+dayRouter.post('/plan-chat', async (req, res) => {
+  const u = await loadUser(req);
+  const body = parse(z.object({
+    message: z.string().trim().min(1, 'Say something').max(4000),
+    draft: draftSchema.nullable().optional(),
+    history: z.array(z.object({ role: z.enum(['user', 'assistant']), text: z.string().max(4000) })).max(40).default([]),
+  }), req.body);
+  const ctx = chatContext(u);
+  const draftIn = (body.draft ?? null) as ChatDraft | null;
+  let source: 'ai' | 'rules' = 'rules';
+  let turn = null as ReturnType<typeof chatTurn> | null;
+  let note: string | null = null;
+  try {
+    const ai = await planChatWithAi({ history: body.history.slice(-20), message: body.message, spec: draftIn?.spec ?? emptySpec(ctx), today: ctx.today, now: localNow(u).toISO()!, defaults: ctx.defaults }, u.aiExternalConsent);
+    if (ai) {
+      const spec = programSpecSchema.safeParse(ai.spec);
+      if (spec.success) {
+        const s = spec.data as ProgramSpec;
+        if (ai.finalize) fillDefaults(s, ctx);
+        const question = ai.question ? { id: 'ai', text: ai.question.text, options: ai.question.options } : ai.ready && !ai.finalize ? { id: 'confirm', text: 'Shall I finalise this into your schedule?', options: ['Finalise', 'Make changes'] } : null;
+        const draft: ChatDraft = { spec: s, pending: question, asked: draftIn?.asked ?? [], ready: ai.ready || ai.finalize };
+        turn = { reply: ai.reply, draft, question, suggestions: ai.suggestions, ready: draft.ready, finalize: ai.finalize && s.tasks.length > 0, changes: [] };
+        source = 'ai';
+      }
+    }
+  } catch {
+    if (u.aiExternalConsent) note = 'Claude wasn’t reachable, so the built-in planner answered.';
+  }
+  turn ??= chatTurn(body.message, draftIn, ctx);
+  res.json({ ...turn, source, note, preview: chatPreview(turn.draft.spec, ctx) });
+});
+
+/** POST /day/plan-chat/preview — another stretch of days of a draft plan (for paging through a long plan). */
+dayRouter.post('/plan-chat/preview', async (req, res) => {
+  const u = await loadUser(req);
+  const body = parse(z.object({ spec: programSpecSchema, from: z.number().int().min(0).max(MAX_DAYS).default(0), count: z.number().int().min(1).max(31).default(14) }), req.body);
+  res.json({ preview: chatPreview(body.spec as ProgramSpec, chatContext(u), body.from, body.count) });
+});
+
+/**
+ * POST /day/plan-chat/finalize — saves the plan. Today's part (if the plan
+ * starts today) becomes tasks right away; later days are added as they come.
+ * An older plan that overlaps ends where the new one starts.
+ */
+dayRouter.post('/plan-chat/finalize', async (req, res) => {
+  const u = await loadUser(req);
+  const { spec: raw } = parse(z.object({ spec: programSpecSchema }), req.body);
+  const spec = raw as ProgramSpec;
+  const ctx = chatContext(u);
+  if (!spec.tasks.length) throw badRequest('Tell me at least one thing to do first.');
+  fillDefaults(spec, ctx);
+  if (spec.startDate! < ctx.today) throw badRequest('That plan starts in the past. Start it today or later.');
+  const end = endDate(spec)!;
+  const overlapping = await prisma.planProgram.findMany({ where: { userId: u.id, status: 'ACTIVE', startDate: { lte: end }, endDate: { gte: spec.startDate! } } });
+  const program = await prisma.$transaction(async (tx) => {
+    for (const p of overlapping) {
+      if (p.startDate >= spec.startDate!) await tx.planProgram.update({ where: { id: p.id }, data: { status: 'REPLACED' } });
+      else await tx.planProgram.update({ where: { id: p.id }, data: { endDate: DateTime.fromISO(spec.startDate!).minus({ days: 1 }).toISODate()! } });
+    }
+    return tx.planProgram.create({ data: { userId: u.id, title: spec.title, startDate: spec.startDate!, endDate: end, spec: spec as unknown as Prisma.InputJsonValue } });
+  });
+  if (spec.startDate === ctx.today) await materialize(u, ctx.today, [program.id]);
+  emitToUser(u.id, 'task:updated', { reason: 'plan-program' });
+  res.status(201).json({ program: programInfo(program, spec.startDate!), replaced: overlapping.length, day: await dayPayload(u, spec.startDate!) });
+});
+
+/** GET /day/programs — your multi-day plans (active first). */
+dayRouter.get('/programs', async (req, res) => {
+  const u = await loadUser(req);
+  const today = localNow(u).toISODate()!;
+  const list = await prisma.planProgram.findMany({ where: { userId: u.id, status: 'ACTIVE', endDate: { gte: today } }, orderBy: { startDate: 'asc' }, take: 20 });
+  res.json({ programs: list.map((p) => ({ ...programInfo(p, today), spec: p.spec })) });
+});
+
+/** DELETE /day/programs/:id — stop a plan (days already planned stay as they are). */
+dayRouter.delete('/programs/:id', async (req, res) => {
+  const u = await loadUser(req);
+  const p = await prisma.planProgram.findFirst({ where: { id: req.params.id, userId: u.id } });
+  if (!p) throw notFound('Plan');
+  await prisma.planProgram.update({ where: { id: p.id }, data: { status: 'ENDED' } });
+  res.json({ ok: true });
+});
+
+/**
+ * GET /day/progress?from=YYYY-MM-DD&to=YYYY-MM-DD — per-day progress for a
+ * week, month or any range: planned vs done, minutes, and (for days ahead)
+ * what the plans will put there. Also totals and the current streak.
+ */
+dayRouter.get('/progress', async (req, res) => {
+  const u = await loadUser(req);
+  const q = parse(z.object({ from: DATE, to: DATE }), req.query);
+  if (q.to < q.from) throw badRequest('“to” must be on or after “from”');
+  if (DateTime.fromISO(q.to).diff(DateTime.fromISO(q.from), 'days').days > 400) throw badRequest('Ask for at most about a year at a time');
+  const today = localNow(u).toISODate()!;
+  const streakFrom = DateTime.fromISO(today).minus({ days: 120 }).toISODate()!;
+  const lo = q.from < streakFrom ? q.from : streakFrom;
+  const [tasks, programs] = await Promise.all([
+    prisma.task.findMany({ where: { assigneeId: u.id, plannedDate: { gte: lo, lte: q.to > today ? q.to : today } }, select: { plannedDate: true, status: true, estimatedMinutes: true } }),
+    prisma.planProgram.findMany({ where: { userId: u.id, status: { in: ['ACTIVE', 'ENDED'] }, startDate: { lte: q.to }, endDate: { gte: q.from } } }),
+  ]);
+  const byDate = new Map<string, { planned: number; done: number; minutes: number; minutesDone: number }>();
+  for (const t of tasks) {
+    const d = byDate.get(t.plannedDate!) ?? { planned: 0, done: 0, minutes: 0, minutesDone: 0 };
+    d.planned += 1;
+    d.minutes += t.estimatedMinutes;
+    if (t.status === 'DONE') { d.done += 1; d.minutesDone += t.estimatedMinutes; }
+    byDate.set(t.plannedDate!, d);
+  }
+  const days: { date: string; planned: number; done: number; minutes: number; minutesDone: number; projected: boolean; missed: boolean; inPlan: boolean }[] = [];
+  for (let d = q.from; d <= q.to; d = DateTime.fromISO(d).plus({ days: 1 }).toISODate()!) {
+    const actual = byDate.get(d);
+    let fromPlan = null as { count: number; minutes: number } | null;
+    for (const p of programs) {
+      if (d < p.startDate || d > p.endDate) continue;
+      const x = plannedOn(p.spec as unknown as ProgramSpec, d);
+      if (x) fromPlan = { count: (fromPlan?.count ?? 0) + x.count, minutes: (fromPlan?.minutes ?? 0) + x.minutes };
+    }
+    if (actual) days.push({ date: d, ...actual, projected: false, missed: false, inPlan: !!fromPlan });
+    else if (fromPlan && fromPlan.count) days.push({ date: d, planned: fromPlan.count, done: 0, minutes: fromPlan.minutes, minutesDone: 0, projected: d >= today, missed: d < today, inPlan: true });
+    else days.push({ date: d, planned: 0, done: 0, minutes: 0, minutesDone: 0, projected: false, missed: false, inPlan: !!fromPlan });
+  }
+  const past = days.filter((x) => x.date <= today && !x.projected);
+  const totals = {
+    planned: past.reduce((s, x) => s + x.planned, 0),
+    done: past.reduce((s, x) => s + x.done, 0),
+    minutes: past.reduce((s, x) => s + x.minutes, 0),
+    minutesDone: past.reduce((s, x) => s + x.minutesDone, 0),
+    activeDays: past.filter((x) => x.done > 0).length,
+  };
+  // Streak: days in a row (up to today) with at least one task done; today doesn't break it yet.
+  let streak = 0;
+  for (let d = today, first = true; d >= streakFrom; d = DateTime.fromISO(d).minus({ days: 1 }).toISODate()!, first = false) {
+    const x = byDate.get(d);
+    if (x && x.done > 0) streak += 1;
+    else if (!first) break;
+  }
+  res.json({ from: q.from, to: q.to, today, days, totals: { ...totals, rate: totals.planned ? Math.round((totals.done / totals.planned) * 100) : 0 }, streak, programs: programs.filter((p) => p.status === 'ACTIVE').map((p) => programInfo(p, today)) });
 });

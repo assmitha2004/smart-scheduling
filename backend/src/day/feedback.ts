@@ -83,7 +83,7 @@ export function sameTask(a: string, b: string): boolean {
 }
 
 /** The task a sentence talks about: the one whose key words appear in it (longest match wins). */
-function findTask(clause: string, tasks: FeedbackTask[]): FeedbackTask | null {
+export function findTask(clause: string, tasks: FeedbackTask[]): FeedbackTask | null {
   const words = new Set(keyWords(clause));
   let best: { t: FeedbackTask; score: number } | null = null;
   for (const t of tasks) {

@@ -60,7 +60,7 @@ export default function MyDay() {
   const { celebrate } = useCelebrate();
   const progress = useProgress().data;
   const [params, setParams] = useSearchParams();
-  const [date, setDate] = useState<string | null>(null);
+  const [date, setDate] = useState<string | null>(() => (/^\d{4}-\d{2}-\d{2}$/.test(params.get('date') ?? '') ? params.get('date') : null));
   const [mode, setMode] = useState<Mode | null>(params.get('plan') === '1' ? 'compose' : null);
   const [understanding, setUnderstanding] = useState<DayUnderstanding | null>(null);
   const [lastText, setLastText] = useState('');
@@ -70,7 +70,11 @@ export default function MyDay() {
   const [notice, setNotice] = useState<string | null>(null);
   const [feedbackLog, setFeedbackLog] = useState<FeedbackLog[]>([]);
   const nowMin = useNowMinute(tz);
-  useEffect(() => { if (params.get('plan')) setParams({}, { replace: true }); }, [params, setParams]);
+  useEffect(() => {
+    const d = params.get('date');
+    if (d && /^\d{4}-\d{2}-\d{2}$/.test(d)) { setDate(d); setMode(null); setUnderstanding(null); }
+    if (params.get('plan') || d) setParams({}, { replace: true });
+  }, [params, setParams]);
 
   const q = useQuery({ queryKey: ['day', date], queryFn: async () => (await api.get<DayData>('/day', { params: date ? { date } : {} })).data });
   const day = q.data;
@@ -145,25 +149,65 @@ export default function MyDay() {
   const hour = DateTime.now().setZone(tz).hour;
   const greeting = hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening';
 
+  const go = (d: string | null) => { setDate(d && d !== day.today ? d : null); setMode(null); setUnderstanding(null); setNotice(null); };
+  const shift = (n: number) => go(DateTime.fromISO(viewDate).plus({ days: n }).toISODate()!);
+  const program = day.programs?.[0];
   const header = (
+    <>
     <header className="mb-6 flex flex-wrap items-end justify-between gap-3">
       <div>
         <p className="text-sm text-muted">{heading}</p>
-        <h1 className="text-2xl font-semibold tracking-tight sm:text-[28px]">{isToday ? `${greeting}, ${first}` : 'Tomorrow'}</h1>
+        <h1 className="text-2xl font-semibold tracking-tight sm:text-[28px]">{isToday ? `${greeting}, ${first}` : viewDate === tomorrow ? 'Tomorrow' : DateTime.fromISO(viewDate).toFormat('cccc')}</h1>
       </div>
+      <div className="flex items-center gap-1.5">
+      <button type="button" onClick={() => shift(-1)} aria-label="Previous day" className="rounded-md px-2 py-1.5 text-muted hover:bg-surface-2 hover:text-fg">‹</button>
       <div className="flex rounded-lg border border-border bg-surface p-0.5 text-sm" role="tablist" aria-label="Day">
         {[{ d: null as string | null, label: 'Today' }, { d: tomorrow, label: 'Tomorrow' }].map((x) => {
           const on = (x.d ?? day.today) === viewDate;
           return (
-            <button key={x.label} role="tab" aria-selected={on} onClick={() => { setDate(x.d); setMode(null); setUnderstanding(null); setNotice(null); }}
+            <button key={x.label} role="tab" aria-selected={on} onClick={() => go(x.d)}
               className={clsx('rounded-md px-3.5 py-1.5 font-medium transition-colors', on ? 'bg-fg text-bg' : 'text-muted hover:text-fg')}>
               {x.label}{x.d && day.tomorrowCount > 0 && !on ? <span className="ml-1.5 rounded-full bg-surface-2 px-1.5 text-[11px]">{day.tomorrowCount}</span> : null}
             </button>
           );
         })}
       </div>
+      <button type="button" onClick={() => shift(1)} aria-label="Next day" className="rounded-md px-2 py-1.5 text-muted hover:bg-surface-2 hover:text-fg">›</button>
+      </div>
     </header>
+    {program && (
+      <div className="-mt-3 mb-5 flex flex-wrap items-center gap-x-3 gap-y-1 rounded-xl border border-border bg-surface px-4 py-2.5 text-sm">
+        <span className="h-2 w-2 rounded-full bg-accent" aria-hidden />
+        <span><span className="font-medium">{program.title}</span>{program.dayNumber ? <span className="text-muted"> · day {program.dayNumber} of {program.totalDays}</span> : null}</span>
+        <span className="ml-auto flex gap-3 text-xs">
+          <Link to="/app/tracker" className="text-accent">Progress calendar</Link>
+          <Link to="/app/planner" className="text-accent">Change plan in chat</Link>
+        </span>
+      </div>
+    )}
+    </>
   );
+
+  // ---------- a later day of a multi-day plan ----------
+  if (current === 'compose' && mode === null && day.projected && day.projected.items.length) {
+    const p = day.projected;
+    return (
+      <div className="mx-auto max-w-4xl">
+        {header}
+        <div className="mb-4 rounded-xl border border-border bg-surface-2/60 px-4 py-3 text-sm">
+          <p className="font-medium">This is how {viewDate === tomorrow ? 'tomorrow' : 'this day'} looks in your plan.</p>
+          <p className="text-muted">Tasks become real on the day itself, so anything unfinished before then is fitted in too. You can tick them off from that day.</p>
+        </div>
+        <Timeline entries={p.items.map((item) => ({ item }))} />
+        {p.overflow.length > 0 && <p className="mt-3 text-sm text-warn">Doesn’t fit that day: {p.overflow.map((o) => `${o.title} (${duration(o.minutes)})`).join(', ')}</p>}
+        {p.insights.length > 0 && <ul className="mt-5 space-y-1 rounded-xl bg-surface-2/60 p-4 text-sm text-muted">{p.insights.map((t, i) => <li key={i}>{t}</li>)}</ul>}
+        <div className="mt-5 flex flex-wrap gap-2">
+          <Link to="/app/planner"><Button variant="secondary">Change the plan in chat</Button></Link>
+          <Button variant="ghost" onClick={() => setMode('compose')}>Plan this day differently</Button>
+        </div>
+      </div>
+    );
+  }
 
   // ---------- describe the day ----------
   if (current === 'compose') {
@@ -176,8 +220,13 @@ export default function MyDay() {
             <p><span className="font-medium">{day.leftovers.length} unfinished from before:</span> {day.leftovers.map((t) => t.title).join(', ')}. They’ll be added to today’s plan automatically.</p>
           </div>
         )}
-        <h2 className="mb-1 text-lg font-semibold">{isToday ? 'What does your day look like?' : 'What’s on for tomorrow?'}</h2>
+        <h2 className="mb-1 text-lg font-semibold">{isToday ? 'What does your day look like?' : viewDate === tomorrow ? 'What’s on for tomorrow?' : `What’s on for ${DateTime.fromISO(viewDate).toFormat('cccc d LLL')}?`}</h2>
         <p className="mb-4 text-sm text-muted">Describe it in your own words: fixed hours (“work 9 to 6:30”), free gaps (“free 11:30–1”), tasks with or without times, and what matters most. You’ll see the plan first and can change anything by telling me.</p>
+        <Link to="/app/planner" className="mb-5 flex items-center gap-4 rounded-xl border border-accent/30 bg-gradient-to-r from-accent-soft/60 to-surface px-4 py-3 transition-shadow hover:shadow-sm">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0 text-accent" aria-hidden><path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.6A8 8 0 1 1 21 12zM8 10h8M8 14h5" /></svg>
+          <span className="min-w-0 flex-1"><span className="block text-sm font-semibold">Plan a week, a month or longer in a chat</span><span className="block text-xs text-muted">It asks what’s unclear, suggests improvements, and turns it into a day-by-day schedule you can track.</span></span>
+          <span className="text-sm font-medium text-accent">Open →</span>
+        </Link>
         <Composer onSubmit={understand} busy={busy === 'understand'} initial={lastText} onQuestions={() => setMode('questions')} placeholderDay={isToday ? 'today' : 'tomorrow'} />
         {error && <div className="mt-4"><ErrorBox message={error} /></div>}
         {hasPlan && <button className="mt-6 text-sm text-muted hover:text-fg" onClick={() => setMode('track')}>← Back to my current plan</button>}

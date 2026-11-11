@@ -196,7 +196,7 @@ export function splitClauses(text: string): string[] {
 const RUN_VERBS = 'study|learn|revise|practice|practise|do|finish|complete|solve|read|write|prepare|watch|review';
 const RUN_SPLIT = new RegExp(String.raw`\s+(?=(?:${RUN_VERBS})\s+\S)`, 'i');
 /** A piece with no task in it: "I need to", "study", "and then". */
-const FILLER_WORDS = String.raw`i|i'll|i will|need|needs|have|has|got|want|must|should|gotta|to|and|then|also|after|that|so|plus|maybe`;
+const FILLER_WORDS = String.raw`i|i'll|i will|need|needs|have|has|got|want|must|should|gotta|to|and|then|also|after|that|so|plus|maybe|today|tomorrow|tonight|now|first|please|ok|okay|so|this week|this month|every ?day|daily`;
 const ONLY_FILLER = new RegExp(String.raw`^(?:(?:${FILLER_WORDS})\s*)+$`, 'i');
 const FILLER_OR_VERB = new RegExp(String.raw`^(?:(?:${FILLER_WORDS}|${RUN_VERBS})\s*)+$`, 'i');
 const STUDY_START = new RegExp(String.raw`^(?:${RUN_VERBS}|work on)\b`, 'i');

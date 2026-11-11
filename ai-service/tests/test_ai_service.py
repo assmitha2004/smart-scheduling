@@ -186,3 +186,38 @@ def test_understand_day_with_claude(monkeypatch):
     assert [t.top for t in res.understanding.tasks] == [True, False]  # only one #1
     # Without the user's consent Claude is never called.
     assert du.understand_day(du.UnderstandDayRequest(text="x", now=NOW, allow_external=False)).provider == "rules"
+
+
+PLAN_REQ = {"message": "gym daily this week", "spec": {}, "today": "2026-11-11", "now": "2026-11-11T10:00:00", "defaults": {}, "allow_external": True}
+
+
+def test_plan_chat_without_claude_falls_back_to_rules(monkeypatch):
+    monkeypatch.delenv("AI_PROVIDER", raising=False)
+    r = client.post("/plan-chat", json=PLAN_REQ)
+    assert r.status_code == 200
+    assert r.json() == {"provider": "rules", "result": None}
+
+
+def test_plan_chat_with_claude(monkeypatch):
+    from app import plan_chat as pc
+    spec = pc.PlanSpec(startDate="2026-11-11", days=5, dayStart="07:30", dayEnd="22:00", peak="MORNING", tasks=[
+        pc.PlanTask(key="a", title="Gym", minutes=60, minutesGuessed=True, effort="MEDIUM", top=True, mustDo=False, repeat="DAILY"),
+        pc.PlanTask(key="b", title="Leetcode", minutes=60, minutesGuessed=False, effort="HARD", top=True, mustDo=True, repeat="WEEKLY", timesPerWeek=3),
+    ])
+    fake = pc.ChatResult(reply="Got it.", spec=spec, question=pc.ChatQuestion(text="How long is gym?", options=["30 min", "1 hour"]), ready=False, finalize=False)
+    monkeypatch.setattr(pc.llm, "available", lambda: True)
+    monkeypatch.setattr(pc.llm, "structured", lambda *a, **k: fake)
+    res = pc.plan_chat(pc.PlanChatRequest(**PLAN_REQ))
+    assert res.provider == "anthropic"
+    assert [t.top for t in res.result.spec.tasks] == [True, False]  # only one #1
+    assert pc.plan_chat(pc.PlanChatRequest(**{**PLAN_REQ, "allow_external": False})).provider == "rules"
+
+
+def test_plan_chat_provider_failure_falls_back(monkeypatch):
+    from app import plan_chat as pc
+
+    def boom(*a, **k):
+        raise RuntimeError("down")
+    monkeypatch.setattr(pc.llm, "available", lambda: True)
+    monkeypatch.setattr(pc.llm, "structured", boom)
+    assert pc.plan_chat(pc.PlanChatRequest(**PLAN_REQ)).provider == "rules"

@@ -3,6 +3,7 @@
 POST /extract-tasks  - free text -> validated draft tasks + dependencies
 POST /daily-briefing - engine facts -> readable briefing text
 POST /understand-day - a day described in words -> tasks + day settings (Claude only)
+POST /plan-chat      - one turn of the planner chat (Claude only)
 GET  /health
 
 Every route is also served under /_ai, which is how the Vercel deployment
@@ -24,6 +25,7 @@ from .daily_briefing import make_briefing
 from .schemas import BriefingRequest, BriefingResponse, ExtractRequest, ExtractResponse
 from .task_extraction import extract_tasks
 from .day_understanding import UnderstandDayRequest, UnderstandDayResponse, understand_day
+from .plan_chat import PlanChatRequest, PlanChatResponse, plan_chat
 
 logging.basicConfig(level=logging.INFO)
 app = FastAPI(title="Smart Scheduling AI service", version="1.0.0")
@@ -58,6 +60,12 @@ def briefing(req: BriefingRequest) -> BriefingResponse:
 @router.post("/understand-day", response_model=UnderstandDayResponse, dependencies=[Depends(require_internal_token)])
 def understand(req: UnderstandDayRequest) -> UnderstandDayResponse:
     return understand_day(req)
+
+
+
+@router.post("/plan-chat", response_model=PlanChatResponse, dependencies=[Depends(require_internal_token)])
+def chat(req: PlanChatRequest) -> PlanChatResponse:
+    return plan_chat(req)
 
 
 app.include_router(router)

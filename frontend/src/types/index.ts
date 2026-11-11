@@ -346,7 +346,12 @@ export interface DayFeedbackSaved {
   help: string | null;
   moved: string[];
 }
+export interface DayProgramInfo { id: string; title: string; startDate: string; endDate: string; totalDays: number; dayNumber: number | null; status: string; createdAt: string }
 export interface DayData {
+  /** Multi-day plans that cover this date. */
+  programs?: DayProgramInfo[];
+  /** A later day of a plan, not started yet: what it will look like. */
+  projected?: { items: DayPlanItem[]; insights: string[]; overflow: { title: string; minutes: number }[] } | null;
   date: string;
   today: string;
   timezone: string;
@@ -387,4 +392,37 @@ export interface DayUnderstanding {
   source: 'ai' | 'rules';
   aiAvailable: boolean;
   preview: DayPreview;
+}
+
+// ---------- Planner chat & multi-day plans ----------
+export type Repeat = 'ONCE' | 'DAILY' | 'WEEKDAYS' | 'WEEKENDS' | 'DAYS' | 'WEEKLY';
+export interface ProgramTask {
+  key: string; title: string; minutes: number; minutesGuessed?: boolean; effort: Effort; top: boolean; mustDo: boolean;
+  fixedTime: string | null; notBefore: string | null; dueBy: string | null;
+  repeat: Repeat | null; days?: number[]; timesPerWeek?: number; date?: string | null; until?: string | null; totalMinutes?: number | null;
+}
+export interface ProgramSpec {
+  title: string; startDate: string | null; days: number | null; sameEveryDay: boolean | null;
+  dayStart: string; dayEnd: string; peak: Peak; breaks?: 'SHORT' | 'NORMAL' | 'LONG'; maxSession?: number;
+  commitments: (DayCommitment & { days: number[] })[]; windows: (DayWindow & { days: number[] })[]; restDays: number[]; tasks: ProgramTask[];
+}
+export interface ChatQuestion { id: string; text: string; options: string[] }
+export interface ChatSuggestion { text: string; action: string }
+export interface ChatDraft { spec: ProgramSpec; pending: ChatQuestion | null; asked: string[]; ready: boolean }
+export interface ProgramPreviewDay { date: string; label: string; rest: boolean; items: DayPlanItem[]; overflow: DayPreview['overflow']; insights: string[]; stats: DayPreview['stats'] }
+export interface ProgramSummary {
+  start: string; end: string; days: number; label: string; taskDays: number; plannedMinutes: number; avgMinutesPerDay: number;
+  overloaded: { date: string; label: string; minutes: number; titles: string[] }[];
+  perTask: { key: string; title: string; when: string; times: number; minutesEach: number; totalMinutes: number }[];
+}
+export interface ProgramPreview { days: ProgramPreviewDay[]; summary: ProgramSummary | null }
+export interface PlanChatTurn {
+  reply: string; draft: ChatDraft; question: ChatQuestion | null; suggestions: ChatSuggestion[]; ready: boolean; finalize: boolean; changes: string[];
+  source: 'ai' | 'rules'; note: string | null; preview: ProgramPreview | null;
+}
+export interface ProgressDay { date: string; planned: number; done: number; minutes: number; minutesDone: number; projected: boolean; missed: boolean; inPlan: boolean }
+export interface DayProgress {
+  from: string; to: string; today: string; days: ProgressDay[];
+  totals: { planned: number; done: number; minutes: number; minutesDone: number; activeDays: number; rate: number };
+  streak: number; programs: DayProgramInfo[];
 }

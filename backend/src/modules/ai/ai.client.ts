@@ -132,3 +132,26 @@ export async function understandDayWithAi(text: string, now: Date, allowExternal
   const r = await call('/understand-day', { text, now: now.toISOString(), allow_external: true }, understandResponse);
   return r.provider === 'anthropic' && r.understanding ? r.understanding : null;
 }
+
+const planChatResponse = z.object({
+  provider: z.string(),
+  result: z.object({
+    reply: z.string().min(1).max(3000),
+    spec: z.record(z.string(), z.unknown()),
+    question: z.object({ text: z.string().min(1).max(500), options: z.array(z.string().min(1).max(80)).max(6).default([]) }).nullable().optional(),
+    suggestions: z.array(z.object({ text: z.string().min(1).max(400), action: z.string().min(1).max(200) })).max(4).default([]),
+    ready: z.boolean().default(false),
+    finalize: z.boolean().default(false),
+  }).nullable().optional(),
+});
+
+/**
+ * One turn of the planner chat with Claude, or null when Claude isn't enabled
+ * or allowed (the built-in chat answers instead). The returned plan is still
+ * validated by the caller.
+ */
+export async function planChatWithAi(input: { history: { role: 'user' | 'assistant'; text: string }[]; message: string; spec: unknown; today: string; now: string; defaults: unknown }, allowExternal: boolean) {
+  if (!allowExternal) return null;
+  const r = await call('/plan-chat', { ...input, allow_external: true }, planChatResponse);
+  return r.provider === 'anthropic' && r.result ? r.result : null;
+}
