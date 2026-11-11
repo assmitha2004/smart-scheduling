@@ -4,7 +4,7 @@ import { Button } from '../../components/ui';
 const EXAMPLES = [
   { label: 'Student', text: 'I wake up at 7. I have to revise maths for 2 hours, that’s the most important. Finish the history essay by 5pm, gym after lunch, call mom at 7pm and maybe buy groceries if I have time. I focus best in the morning.' },
   { label: 'Work day', text: 'Need to finish the quarterly report by 4pm, it’s urgent. Reply to emails in the morning, quick. Team meeting at 11 for 1 hour. Prepare slides for tomorrow 1.5h. Go for a run in the evening.' },
-  { label: 'Work + study', text: 'Work 9 to 5 today. After work I need to study DBMS for 1.5 hours and do 2 leetcode problems. Cook dinner, call a friend at 9. I sleep at 11:30.' },
+  { label: 'Work + study', text: 'Work 9 to 6:30 today. I can study 1-2 in between work. After work I need to do 2 leetcode problems, study DBMS for 1.5 hours and work on my project. Call a friend at 9. I sleep at 11:30.' },
 ];
 
 /** "Tell me about your day": one free-text box that Tempo turns into a plan. */

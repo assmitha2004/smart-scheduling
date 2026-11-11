@@ -14,7 +14,9 @@ export function duration(min: number) {
   return h && m ? `${h}h ${m}m` : h ? `${h}h` : `${m}m`;
 }
 
-export const EFFORT_LABEL: Record<Effort, string> = { EASY: '🍃 Easy', MEDIUM: '🙂 Normal', HARD: '🧠 Hard' };
+export const EFFORT_LABEL: Record<Effort, string> = { EASY: 'Light', MEDIUM: 'Normal', HARD: 'Deep focus' };
+/** Titles saved by older versions carried emoji; show them plain. */
+export const plain = (s: string) => s.replace(/\p{Extended_Pictographic}\uFE0F?/gu, '').replace(/\s{2,}/g, ' ').trim();
 export const DURATION_CHOICES = [15, 30, 45, 60, 90, 120, 180];
 
 const KIND_STYLE: Record<DayPlanItem['kind'], string> = {

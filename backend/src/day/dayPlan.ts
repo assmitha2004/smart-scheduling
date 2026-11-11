@@ -58,7 +58,8 @@ export interface PlanItem {
 
 export interface DayPlanResult {
   items: PlanItem[];
-  overflow: { taskId: string; title: string; minutes: number; mustDo: boolean }[];
+  /** `partial`: part of the task is planned today and only these minutes move on. */
+  overflow: { taskId: string; title: string; minutes: number; mustDo: boolean; partial?: boolean }[];
   insights: string[];
   stats: { freeMinutes: number; plannedMinutes: number; taskCount: number; scheduledCount: number };
 }
@@ -71,6 +72,10 @@ export interface PlanDayInput {
   tasks: DayTaskInput[];
   /** Longest single session before a task is split (default 90). */
   maxSession?: number;
+  /** Free time inside commitments (e.g. gaps during work); `light` = keep it for lighter work. */
+  windows?: { start: number; end: number; light: boolean }[];
+  /** Break length multiplier: 0.5 shorter, 1 normal, 2 longer. */
+  breakScale?: number;
 }
 
 // ---------- helpers ----------
@@ -207,7 +212,7 @@ export function sessions(minutes: number, max: number): number[] {
   return out;
 }
 
-const breakAfter = (minutes: number) => (minutes >= 75 ? 15 : minutes >= 40 ? 10 : 5);
+const baseBreak = (minutes: number) => (minutes >= 75 ? 15 : minutes >= 40 ? 10 : 5);
 
 function priorityRank(t: DayTaskInput): number {
   return (t.top ? 0 : t.mustDo ? 1 : t.fromEarlier ? 2 : 3) * 10 + (t.effort === 'HARD' ? 0 : t.effort === 'MEDIUM' ? 1 : 2);
@@ -215,6 +220,10 @@ function priorityRank(t: DayTaskInput): number {
 
 export function planDay(input: PlanDayInput): DayPlanResult {
   const maxSession = input.maxSession ?? 90;
+  const scale = input.breakScale ?? 1;
+  const breakAfter = (minutes: number) => Math.max(5, Math.round((baseBreak(minutes) * scale) / 5) * 5);
+  const windows = input.windows ?? [];
+  const inWindow = (s: number, e: number) => windows.find((w) => s >= w.start && e <= w.end);
   const dayStart = roundUp(Math.max(0, input.dayStart));
   const dayEnd = Math.min(1440, input.dayEnd);
   const items: PlanItem[] = [];
@@ -244,7 +253,7 @@ export function planDay(input: PlanDayInput): DayPlanResult {
       continue;
     }
     const clash = items.find((i) => i.start < e && s < i.end);
-    items.push({ kind: 'TASK', taskId: t.id, title: t.title, start: s, end: e, part: null, parts: null, reason: clash ? `⏰ At ${fmtClock(s)} like you asked. Heads up: it overlaps “${clash.title}”.` : `⏰ At ${fmtClock(s)} like you asked` });
+    items.push({ kind: 'TASK', taskId: t.id, title: t.title, start: s, end: e, part: null, parts: null, reason: clash ? `At ${fmtClock(s)}, as you asked. Note: overlaps “${clash.title}”.` : `At ${fmtClock(s)}, as you asked` });
     free = subtract(free, [s, e + 5]);
   }
 
@@ -267,6 +276,7 @@ export function planDay(input: PlanDayInput): DayPlanResult {
     let chunks: number[] = [];
     let placed: Iv[] = [];
     let saved = free;
+    let bestPartial: { placed: Iv[]; saved: Iv[]; lo: number; hi: number; minutes: number } | null = null;
     for (const { size, lo: tryLo, hi: tryHi } of tries) {
       usedLo = tryLo;
       usedHi = tryHi;
@@ -282,7 +292,10 @@ export function planDay(input: PlanDayInput): DayPlanResult {
             const energy = energyAt(input.peak, mid);
             const fit = t.effort === 'HARD' ? energy : t.effort === 'EASY' ? (10 - energy) * 0.6 : 5;
             const urgency = t.top ? 4 : t.mustDo ? 2.5 : t.fromEarlier ? 1.5 : 0.2;
-            const score = fit * (t.effort === 'MEDIUM' ? 0.2 : 1) - urgency * ((start - dayStart) / 60);
+            let score = fit * (t.effort === 'MEDIUM' ? 0.2 : 1) - urgency * ((start - dayStart) / 60);
+            // Gaps kept "for light work" suit easier tasks better than deep focus.
+            const w = inWindow(start, start + len);
+            if (w?.light) score += t.effort === 'HARD' ? -2 : 3;
             if (!best || score > best.score) best = { start, score };
           }
         }
@@ -292,6 +305,17 @@ export function planDay(input: PlanDayInput): DayPlanResult {
         notBefore = best.start + len + breakAfter(len);
       }
       if (placed.length === chunks.length) break;
+      const got = placed.reduce((sum, [a, b]) => sum + b - a, 0);
+      if (got && (!bestPartial || got > bestPartial.minutes)) bestPartial = { placed: [...placed], saved, lo: tryLo, hi: tryHi, minutes: got };
+    }
+    // Doesn't all fit: do what fits today (at least 30 minutes) and move only the rest.
+    let leftOver = 0;
+    if (placed.length < chunks.length && bestPartial && bestPartial.minutes >= Math.min(30, t.minutes)) {
+      ({ placed, saved } = bestPartial);
+      usedLo = bestPartial.lo;
+      usedHi = bestPartial.hi;
+      chunks = placed.map(([a, b]) => b - a);
+      leftOver = t.minutes - bestPartial.minutes;
     }
     if (placed.length === chunks.length && constrained && (usedLo !== lo || usedHi !== hi)) {
       insights.push(`I couldn’t fit “${t.title}” ${t.dueBy && t.notBefore ? `between ${fmtClock(lo)} and ${fmtClock(hi)}` : t.dueBy ? `before ${fmtClock(hi)}` : `after ${fmtClock(lo)}`}, so I put it at the closest free time.`);
@@ -301,26 +325,29 @@ export function planDay(input: PlanDayInput): DayPlanResult {
       continue;
     }
     free = saved;
+    if (leftOver > 0) overflow.push({ taskId: t.id, title: t.title, minutes: leftOver, mustDo: t.mustDo || t.top, partial: true });
     placed.forEach(([s, e], i) => {
       const energy = energyAt(input.peak, (s + e) / 2);
-      const reason = t.top ? '⭐ Your #1 priority, placed while you’re fresh'
-        : t.dueBy && t.notBefore && usedHi === hi && usedLo === lo ? `🕑 Between ${fmtClock(lo)} and ${fmtClock(hi)}, like you said`
-        : t.dueBy && usedHi === hi ? `🎯 Done before ${fmtClock(hi)}, like you said`
-        : t.notBefore && usedLo === lo ? `🕑 After ${fmtClock(lo)}, like you said`
-        : t.fromEarlier ? '↩️ Left over from before, so it comes early today'
-        : t.mustDo ? '📌 Must get done today'
-        : t.effort === 'HARD' && energy >= 8 ? '🧠 Needs your full brain, so it’s at your best time'
-        : t.effort === 'EASY' && energy <= 5 ? '🍃 Quick and easy, good for lower-energy time'
-        : '✅ Fits nicely here';
-      items.push({ kind: 'TASK', taskId: t.id, title: t.title, start: s, end: e, part: chunks.length > 1 ? i + 1 : null, parts: chunks.length > 1 ? chunks.length : null, reason: i === 0 ? reason : 'Next session, after a break' });
+      const gap = inWindow(s, e);
+      const reason = t.top ? 'Top priority, placed while you’re fresh'
+        : t.dueBy && t.notBefore && usedHi === hi && usedLo === lo ? `Between ${fmtClock(lo)} and ${fmtClock(hi)}, as you said`
+        : t.dueBy && usedHi === hi ? `Done before ${fmtClock(hi)}, as you said`
+        : t.notBefore && usedLo === lo ? `After ${fmtClock(lo)}, as you said`
+        : gap ? `In your free time ${fmtClock(gap.start)}–${fmtClock(gap.end)}`
+        : t.fromEarlier ? 'Carried over from before'
+        : t.mustDo ? 'Must be done today'
+        : t.effort === 'HARD' && energy >= 8 ? 'Deep work at your best time of day'
+        : t.effort === 'EASY' && energy <= 5 ? 'Light task for a lower-energy slot'
+        : null;
+      items.push({ kind: 'TASK', taskId: t.id, title: t.title, start: s, end: e, part: chunks.length > 1 ? i + 1 : null, parts: chunks.length > 1 ? chunks.length : null, reason: i === 0 ? reason : 'Continued after a break' });
       // A visible break after each longer session, when the next thing doesn't start right away.
-      if (e - s >= 40) items.push({ kind: 'BREAK', taskId: null, title: '☕ Short break', start: e, end: e + breakAfter(e - s), part: null, parts: null, reason: null });
+      if (e - s >= 40) items.push({ kind: 'BREAK', taskId: null, title: 'Break', start: e, end: e + breakAfter(e - s), part: null, parts: null, reason: null });
     });
   }
 
   // Drop breaks that collide with something (e.g. the day ends or a meeting starts).
-  const solid = items.filter((i) => i.kind !== 'BREAK' || i.title !== '☕ Short break');
-  const breaks = items.filter((i) => i.kind === 'BREAK' && i.title === '☕ Short break' && i.end <= dayEnd && !solid.some((x) => x.start < i.end && i.start < x.end));
+  const solid = items.filter((i) => i.kind !== 'BREAK' || i.title !== 'Break');
+  const breaks = items.filter((i) => i.kind === 'BREAK' && i.title === 'Break' && i.end <= dayEnd && !solid.some((x) => x.start < i.end && i.start < x.end));
   const all = [...solid, ...breaks].sort((a, b) => a.start - b.start || (a.kind === 'TASK' ? -1 : 1));
 
   // Friendly, honest insights.
@@ -329,21 +356,24 @@ export function planDay(input: PlanDayInput): DayPlanResult {
   const top = input.tasks.find((t) => t.top);
   if (top && scheduled.has(top.id)) {
     const first = all.find((i) => i.taskId === top.id)!;
-    insights.unshift(`Your #1 priority, “${top.title}”, starts at ${fmtClock(first.start)}. Get that done and the day is already a win 🏆`);
+    insights.unshift(`Top priority “${top.title}” starts at ${fmtClock(first.start)}.`);
   }
   const split = input.tasks.filter((t) => all.some((i) => i.taskId === t.id && i.parts));
-  if (split.length) insights.push(`I split ${split.map((t) => `“${t.title}”`).join(', ')} into shorter sessions with breaks, so it’s less tiring.`);
-  const mustMissed = overflow.filter((o) => o.mustDo);
+  if (split.length) insights.push(`${split.map((t) => `“${t.title}”`).join(', ')} ${split.length > 1 ? 'are' : 'is'} split into shorter sessions with breaks.`);
+  const partial = overflow.filter((o) => o.partial);
+  if (partial.length) insights.push(`Not all of ${partial.map((o) => `“${o.title}”`).join(', ')} fits today: ${partial.map((o) => `${fmtDuration(o.minutes)} of “${o.title}”`).join(', ')} ${partial.length > 1 ? 'carry' : 'carries'} over to tomorrow.`);
+  const whole = overflow.filter((o) => !o.partial);
+  const mustMissed = whole.filter((o) => o.mustDo);
   if (mustMissed.length) {
     const need = mustMissed.reduce((s, o) => s + o.minutes, 0);
-    const others = overflow.filter((o) => !o.mustDo);
-    insights.push(`Your must-dos don’t all fit: ${fmtDuration(need)} more is needed than you have free. I moved ${mustMissed.map((o) => `“${o.title}”`).join(', ')} to tomorrow${others.length ? `, and also ${others.map((o) => `“${o.title}”`).join(', ')}` : ''}. Want to drop something less important instead?`);
-  } else if (overflow.length) {
-    insights.push(`${overflow.length} task${overflow.length > 1 ? 's' : ''} didn’t fit today, so I moved ${overflow.length > 1 ? 'them' : 'it'} to tomorrow. No stress 💛`);
+    const others = whole.filter((o) => !o.mustDo);
+    insights.push(`Must-do work doesn’t all fit: ${fmtDuration(need)} more is needed than you have free. Moved to tomorrow: ${mustMissed.map((o) => `“${o.title}”`).join(', ')}${others.length ? `, ${others.map((o) => `“${o.title}”`).join(', ')}` : ''}. Tell me what to drop or shorten to keep them today.`);
+  } else if (whole.length) {
+    insights.push(`${whole.length} task${whole.length > 1 ? 's' : ''} didn’t fit and ${whole.length > 1 ? 'move' : 'moves'} to tomorrow: ${whole.map((o) => `“${o.title}”`).join(', ')}.`);
   }
   const spare = freeMinutes - plannedMinutes;
   if (!overflow.length && input.tasks.length) {
-    insights.push(spare >= 120 ? `Everything fits, with about ${fmtDuration(spare)} to spare. Room for a walk or a nap 🌿` : 'Everything fits. A full but doable day 💪');
+    insights.push(spare >= 120 ? `Everything fits, with ${fmtDuration(spare)} unplanned.` : 'Everything fits. A full but doable day.');
   }
 
   return {
@@ -356,11 +386,11 @@ export function planDay(input: PlanDayInput): DayPlanResult {
 
 // ---------- compliments ----------
 const COMPLIMENTS = {
-  first: ['First one done! The hardest part is starting, and you did it 🚀', 'And we’re off! Great start ✨'],
-  top: ['You crushed your #1 priority. Everything else is a bonus 🏆', 'Biggest task of the day: done. Seriously impressive 💪'],
-  half: ['Halfway there! Look at you go 🔥', 'Half the list, gone. Keep that rhythm 🎶'],
-  all: ['Every single task done. What a day! 🎉 Go enjoy your evening.', 'Day complete! You planned it and you did it 🌟'],
-  any: ['Nice one! ✅', 'Done and dusted 🧹', 'Another one down 💫', 'Future you says thank you 💌', 'You’re on a roll 🎯', 'Smooth! On to the next 🚀'],
+  first: ['First task done. Starting is the hardest part.', 'Good start. One down.'],
+  top: ['Top priority done. Everything else is a bonus.', 'The most important task is finished. Well done.'],
+  half: ['Halfway through the plan. Keep the rhythm.', 'Half the list is done.'],
+  all: ['Every task is done. Great day.', 'Day complete. You planned it and you did it.'],
+  any: ['Done.', 'Nice work.', 'Another one finished.', 'On to the next one.', 'Good progress.'],
 };
 
 /** A friendly message for finishing a task, based on how the day is going. */

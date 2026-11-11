@@ -39,7 +39,7 @@ describe('planning a day', () => {
     // 9:00-10:00 is too short for 90 minutes, so the #1 task takes the first slot that fits.
     expect(tasksOf(r).find((i) => i.taskId === 'report')).toMatchObject({ start: toMin('10:15'), end: toMin('11:45') });
     expect(r.overflow).toEqual([]);
-    expect(r.insights[0]).toContain('#1 priority');
+    expect(r.insights[0]).toContain('Top priority');
   });
 
   it('puts hard work at peak energy and easy work outside it', () => {
@@ -51,7 +51,7 @@ describe('planning a day', () => {
     const laundry = tasksOf(r).find((i) => i.taskId === 'laundry')!;
     expect(energyAt('EVENING', (essay.start + essay.end) / 2)).toBe(10);
     expect(energyAt('EVENING', laundry.start)).toBeLessThan(10);
-    expect(essay.reason).toContain('full brain');
+    expect(essay.reason).toContain('best time');
   });
 
   it('splits long tasks into sessions with breaks, in order', () => {
@@ -135,5 +135,20 @@ describe('time windows from the prompt', () => {
     const r = planDay({ dayStart: toMin('18:00'), dayEnd: toMin('22:00'), peak: 'EVENING', busy: [], tasks: [task('emails', 30, { dueBy: '12:00' })] });
     expect(tasksOf(r)).toHaveLength(1);
     expect(r.insights.join(' ')).toContain('couldn’t fit “emails” before 12pm');
+  });
+});
+
+describe('when a task only partly fits', () => {
+  it('plans what fits today and carries only the rest', async () => {
+    const { planDay } = await import('../../src/day/dayPlan.js');
+    const r = planDay({
+      dayStart: 9 * 60, dayEnd: 12 * 60, peak: 'MORNING',
+      busy: [{ title: 'Meeting', start: 10 * 60, end: 11 * 60, kind: 'BUSY' }],
+      tasks: [{ id: 'a', title: 'Write report', minutes: 150, mustDo: false, top: false, effort: 'HARD', fixedTime: null }],
+    });
+    const planned = r.items.filter((i) => i.kind === 'TASK').reduce((s, i) => s + i.end - i.start, 0);
+    expect(planned).toBeGreaterThanOrEqual(60);
+    expect(r.overflow).toEqual([{ taskId: 'a', title: 'Write report', minutes: 150 - planned, mustDo: false, partial: true }]);
+    expect(r.insights.join(' ')).toContain('carries over');
   });
 });

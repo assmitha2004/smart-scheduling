@@ -7,7 +7,8 @@ import { parse } from '../../middleware/validate.js';
 import { currentUser } from '../../middleware/auth.js';
 import { badRequest, notFound } from '../../utils/errors.js';
 import { emitToUser } from '../../realtime/socket.js';
-import { understandClause, understandDay } from '../../day/understand.js';
+import { understandClause, understandDay, type Commitment, type FreeWindow } from '../../day/understand.js';
+import { applyFeedback, sameTask } from '../../day/feedback.js';
 import { understandDayWithAi } from '../ai/ai.client.js';
 import {
   compliment,
@@ -33,7 +34,17 @@ const MY_DAY_PROJECT = '📝 My Day';
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 const hm = z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$|^24:00$/, 'Use HH:mm');
 
-interface Settings { dayStart: string; dayEnd: string; peak: Peak }
+interface Settings {
+  dayStart: string;
+  dayEnd: string;
+  peak: Peak;
+  /** Fixed commitments named in words, e.g. "work 9 to 6:30". */
+  commitments?: Commitment[];
+  /** Free gaps inside commitments, e.g. "11:30-1 in between work". */
+  windows?: FreeWindow[];
+  breaks?: 'SHORT' | 'NORMAL' | 'LONG';
+  maxSession?: number;
+}
 interface LifeProfileLite { wakeTime?: string; sleepTime?: string; chronotype?: string; meals?: { lunch?: string | null; dinner?: string | null; breakfast?: string | null } }
 
 // ---------- helpers ----------
@@ -78,7 +89,21 @@ async function myDayProject(userId: string): Promise<string> {
 }
 
 /** Calendar events, accepted week-plan blocks and meals on that day, as local minutes. */
-async function busyFor(u: User, date: string): Promise<Busy[]> {
+/** Commitments minus the free windows inside them, as local minutes. */
+function commitmentBusy(settings: Settings): Busy[] {
+  let out: Busy[] = (settings.commitments ?? []).map((c) => ({ title: c.title, start: toMin(c.start), end: c.end === '24:00' ? 1440 : toMin(c.end), kind: 'BUSY' as const }));
+  for (const w of settings.windows ?? []) {
+    const ws = toMin(w.start);
+    const we = w.end === '24:00' ? 1440 : toMin(w.end);
+    out = out.flatMap((b) => (we <= b.start || ws >= b.end ? [b] : [
+      ...(ws > b.start ? [{ ...b, end: ws }] : []),
+      ...(we < b.end ? [{ ...b, start: we }] : []),
+    ]));
+  }
+  return out.filter((b) => b.end > b.start);
+}
+
+async function busyFor(u: User, date: string, settings?: Settings): Promise<Busy[]> {
   const start = dayOf(u, date);
   const end = start.plus({ days: 1 });
   const toLocal = (d: Date) => Math.max(0, Math.min(1440, Math.round(DateTime.fromJSDate(d).setZone(u.timezone).diff(start, 'minutes').minutes)));
@@ -88,15 +113,19 @@ async function busyFor(u: User, date: string): Promise<Busy[]> {
   ]);
   const busy: Busy[] = [
     ...events.map((e) => ({ title: e.title, start: toLocal(e.startAt), end: toLocal(e.endAt), kind: (e.eventType === 'BREAK' ? 'BREAK' : 'BUSY') as Busy['kind'] })),
-    ...blocks.map((b) => ({ title: `📅 ${b.task.title}`, start: toLocal(b.startAt), end: toLocal(b.endAt), kind: 'BUSY' as const })),
+    ...blocks.map((b) => ({ title: b.task.title, start: toLocal(b.startAt), end: toLocal(b.endAt), kind: 'BUSY' as const })),
+    ...(settings ? commitmentBusy(settings) : []),
   ].filter((b) => b.end > b.start);
+  const named = settings?.commitments ?? [];
+  const insideCommitment = (s: number, e: number) => named.some((c) => s < (c.end === '24:00' ? 1440 : toMin(c.end)) && e > toMin(c.start));
   // No meals on the calendar? Use the saved meal times (or sensible defaults).
   if (!busy.some((b) => b.kind === 'BREAK')) {
     const meals = ((u.lifeProfile ?? {}) as LifeProfileLite).meals;
     const lunch = meals?.lunch === undefined ? '13:00' : meals.lunch;
     const dinner = meals?.dinner === undefined ? '20:00' : meals.dinner;
-    if (lunch) busy.push({ title: '🥗 Lunch', start: toMin(lunch), end: toMin(lunch) + 45, kind: 'BREAK' });
-    if (dinner) busy.push({ title: '🍲 Dinner', start: toMin(dinner), end: toMin(dinner) + 45, kind: 'BREAK' });
+    // A meal inside work hours happens at work: it isn't a separate block.
+    if (lunch && !insideCommitment(toMin(lunch), toMin(lunch) + 45)) busy.push({ title: 'Lunch', start: toMin(lunch), end: toMin(lunch) + 45, kind: 'BREAK' });
+    if (dinner && !insideCommitment(toMin(dinner), toMin(dinner) + 45)) busy.push({ title: 'Dinner', start: toMin(dinner), end: toMin(dinner) + 45, kind: 'BREAK' });
   }
   return busy;
 }
@@ -157,12 +186,22 @@ const taskSchema = z.object({
   notBefore: hm.nullable().optional(),
   dueBy: hm.nullable().optional(),
 });
-const settingsSchema = z.object({ dayStart: hm, dayEnd: hm, peak: z.enum(['MORNING', 'AFTERNOON', 'EVENING']) });
+const settingsSchema = z.object({
+  dayStart: hm,
+  dayEnd: hm,
+  peak: z.enum(['MORNING', 'AFTERNOON', 'EVENING']),
+  commitments: z.array(z.object({ title: z.string().trim().min(1).max(80), start: hm, end: hm })).max(20).optional(),
+  windows: z.array(z.object({ start: hm, end: hm, light: z.boolean().default(false) })).max(20).optional(),
+  breaks: z.enum(['SHORT', 'NORMAL', 'LONG']).optional(),
+  maxSession: z.number().int().min(20).max(240).optional(),
+});
 const planSchema = z.object({
   date: z.string().regex(DATE_RE).optional(),
   settings: settingsSchema,
   tasks: z.array(taskSchema).max(40),
   removeIds: z.array(z.string().uuid()).max(100).default([]),
+  /** Existing tasks to move to the next day instead of planning them now. */
+  deferIds: z.array(z.string().uuid()).max(100).default([]),
   dryRun: z.boolean().default(false),
 });
 
@@ -170,7 +209,7 @@ const planSchema = z.object({
 type TaskIn = z.infer<typeof taskSchema> & { planMinutes?: number; planFixedTime?: string };
 
 /** Plans the day and (unless dryRun) saves tasks, the timeline and what moves to tomorrow. */
-async function planAndSave(u: User, date: string, settings: Settings, input: TaskIn[], removeIds: string[], dryRun: boolean) {
+async function planAndSave(u: User, date: string, settings: Settings, input: TaskIn[], removeIds: string[], dryRun: boolean, deferIds: string[] = []) {
   const today = localNow(u).toISODate()!;
   if (date < today) throw badRequest('That day is in the past. Plan today or a day ahead.');
   if (input.filter((t) => t.top).length > 1) throw badRequest('Pick only one #1 priority');
@@ -192,7 +231,7 @@ async function planAndSave(u: User, date: string, settings: Settings, input: Tas
     dayStart = Math.max(dayStart, Math.ceil((n.hour * 60 + n.minute) / 5) * 5);
   }
   const dayEnd = toMin(settings.dayEnd);
-  if (dayEnd - dayStart < 15) throw badRequest(date === today ? 'There’s almost no time left today. Plan tomorrow instead? 🌙' : 'The day needs to end after it starts');
+  if (dayEnd - dayStart < 15) throw badRequest(date === today ? 'There’s almost no time left today. Plan tomorrow instead?' : 'The day needs to end after it starts');
 
   const open = input.filter((t) => !(t.id && doneIds.has(t.id)));
   const keys = open.map((t, i) => t.id ?? `new-${i}`);
@@ -200,8 +239,11 @@ async function planAndSave(u: User, date: string, settings: Settings, input: Tas
     dayStart,
     dayEnd,
     peak: settings.peak,
+    windows: (settings.windows ?? []).map((w) => ({ start: toMin(w.start), end: w.end === '24:00' ? 1440 : toMin(w.end), light: w.light })),
+    breakScale: settings.breaks === 'SHORT' ? 0.5 : settings.breaks === 'LONG' ? 2 : 1,
+    maxSession: settings.maxSession,
     busy: [
-      ...(await busyFor(u, date)),
+      ...(await busyFor(u, date, settings)),
       ...keptItems.map((i) => ({ title: i.title, start: i.start, end: i.end, kind: 'BUSY' as const })),
     ],
     tasks: open.map((t, i): DayTaskInput => ({
@@ -226,7 +268,8 @@ async function planAndSave(u: User, date: string, settings: Settings, input: Tas
   if (dryRun) return { preview: { items, overflow: result.overflow, insights: result.insights, stats: result.stats } };
 
   const projectId = await myDayProject(u.id);
-  const overflowKeys = new Set(result.overflow.map((o) => o.taskId));
+  // A task partly planned today stays on today; whatever isn't done rolls over as usual.
+  const overflowKeys = new Set(result.overflow.filter((o) => !o.partial).map((o) => o.taskId));
   const tomorrow = nextDate(u, date);
   await prisma.$transaction(async (tx) => {
     const realId = new Map<string, string>();
@@ -254,6 +297,7 @@ async function planAndSave(u: User, date: string, settings: Settings, input: Tas
         realId.set(keys[i], created.id);
       }
     }
+    if (deferIds.length) await tx.task.updateMany({ where: { id: { in: deferIds }, assigneeId: u.id, status: { not: 'DONE' } }, data: { plannedDate: tomorrow, rolloverCount: { increment: 1 } } });
     if (removeIds.length) await tx.task.deleteMany({ where: { id: { in: removeIds }, assigneeId: u.id, plannedDate: { not: null }, status: { not: 'DONE' } } });
     const saved = items.map((i) => ({ ...i, taskId: i.taskId ? realId.get(i.taskId) ?? i.taskId : null }));
     const data = { settings: settings as unknown as Prisma.InputJsonValue, items: saved as unknown as Prisma.InputJsonValue, insights: result.insights as unknown as Prisma.InputJsonValue };
@@ -264,7 +308,7 @@ async function planAndSave(u: User, date: string, settings: Settings, input: Tas
   const before = new Map(((previous?.items ?? []) as unknown as PlanItem[]).filter((i) => i.kind === 'TASK').map((i) => [`${i.taskId}:${i.part ?? 0}`, `${i.start}-${i.end}`]));
   const day = await dayPayload(u, date);
   const changed = (day.plan?.items ?? []).filter((i) => i.kind === 'TASK' && i.taskId && !doneIds.has(i.taskId) && before.get(`${i.taskId}:${i.part ?? 0}`) !== `${i.start}-${i.end}`).length;
-  return { day, moved: result.overflow.map((o) => o.title), changed };
+  return { day, moved: result.overflow.map((o) => (o.partial ? `the last ${o.minutes} min of ${o.title}` : o.title)), changed };
 }
 
 // ---------- routes ----------
@@ -298,6 +342,9 @@ dayRouter.post('/understand', async (req, res) => {
       understood = {
         date: ai.date,
         settings: { dayStart: ai.day_start ?? undefined, dayEnd: ai.day_end ?? undefined, peak: ai.peak ?? undefined },
+        // Claude reads tasks; commitments and free gaps come from the built-in reader.
+        commitments: understood.commitments,
+        windows: understood.windows,
         tasks: ai.tasks.map((t) => ({ title: t.title, minutes: t.minutes, minutesGuessed: t.minutes_guessed, mustDo: t.must_do, top: t.top, effort: t.effort, fixedTime: t.fixed_time ?? null, notBefore: t.not_before ?? null, dueBy: t.due_by ?? null })),
         notes: ai.notes,
       };
@@ -314,7 +361,11 @@ dayRouter.post('/understand', async (req, res) => {
     dayStart: understood.settings.dayStart && (date !== today || understood.settings.dayStart > defaults.dayStart) ? understood.settings.dayStart : defaults.dayStart,
     dayEnd: understood.settings.dayEnd ?? defaults.dayEnd,
     peak: understood.settings.peak ?? defaults.peak,
+    ...(understood.commitments.length ? { commitments: understood.commitments } : {}),
+    ...(understood.windows.length ? { windows: understood.windows } : {}),
   };
+  // Free time named earlier than the usual start (e.g. before work) widens the day.
+  for (const w of understood.windows) if (toMin(w.start) < toMin(settings.dayStart) && (date !== today || toMin(w.start) >= toMin(defaults.dayStart))) settings.dayStart = w.start;
   if (toMin(settings.dayEnd) <= toMin(settings.dayStart) + 15) settings.dayEnd = defaults.dayEnd;
 
   // Keep what's already planned for that day and anything left over, unless it was mentioned again.
@@ -322,19 +373,20 @@ dayRouter.post('/understand', async (req, res) => {
     prisma.task.findMany({ where: { assigneeId: u.id, plannedDate: date, status: { not: 'DONE' } }, orderBy: { createdAt: 'asc' } }),
     date === today ? prisma.task.findMany({ where: { assigneeId: u.id, plannedDate: { lt: date }, status: { in: ['TODO', 'IN_PROGRESS'] } }, take: 20 }) : Promise.resolve([] as Task[]),
   ]);
-  const said = new Map(understood.tasks.map((t) => [t.title.toLowerCase(), t]));
+  const said = [...understood.tasks];
   const tasks: (TaskIn & { minutesGuessed?: boolean; fromEarlier?: boolean })[] = [];
   for (const t of [...existing, ...leftovers]) {
-    const again = said.get(t.title.toLowerCase());
-    if (again) said.delete(t.title.toLowerCase());
-    const src = again ?? null;
+    // "2 leetcode problems" today is the same as yesterday's "Leetcode".
+    const i = said.findIndex((x) => sameTask(x.title, t.title));
+    const again = i >= 0 ? said.splice(i, 1)[0] : null;
+    const src = again && { ...again, minutes: again.minutesGuessed ? t.estimatedMinutes : again.minutes };
     tasks.push({
       id: t.id, title: t.title, minutes: src?.minutes ?? t.estimatedMinutes, mustDo: src?.mustDo ?? (t.mustDo || t.plannedDate! < date), top: src?.top ?? t.dayTop,
       effort: (src?.effort ?? t.effort ?? 'MEDIUM') as Effort, fixedTime: src?.fixedTime ?? t.fixedTime, notBefore: src?.notBefore ?? t.notBefore, dueBy: src?.dueBy ?? t.dueBy,
       fromEarlier: t.plannedDate! < date,
     });
   }
-  for (const t of said.values()) tasks.push({ ...t });
+  for (const t of said) tasks.push({ ...t });
   if (tasks.filter((t) => t.top).length > 1) { let seen = false; for (const t of tasks) { if (t.top && seen) t.top = false; seen ||= t.top; } }
   const carried = tasks.filter((t) => t.fromEarlier).length;
   if (carried) notes.push(`I added ${carried} task${carried > 1 ? 's' : ''} left over from before.`);
@@ -348,7 +400,7 @@ dayRouter.post('/plan', async (req, res) => {
   const u = await loadUser(req);
   const body = parse(planSchema, req.body);
   const date = resolveDate(u, body.date);
-  res.json(await planAndSave(u, date, body.settings, body.tasks, body.removeIds, body.dryRun));
+  res.json(await planAndSave(u, date, body.settings, body.tasks, body.removeIds, body.dryRun, body.deferIds));
 });
 
 /** POST /day/replan — re-plans the rest of the day from now, e.g. after "I need more time". */
@@ -427,7 +479,7 @@ dayRouter.post('/tasks/:id/done', async (req, res) => {
 dayRouter.post('/tasks/:id/tomorrow', async (req, res) => {
   const u = await loadUser(req);
   const t = await ownDayTask(u, req.params.id);
-  if (t.status === 'DONE') throw badRequest('That task is already done 🎉');
+  if (t.status === 'DONE') throw badRequest('That task is already done.');
   const from = t.plannedDate!;
   await prisma.$transaction(async (tx) => {
     await tx.task.update({ where: { id: t.id }, data: { plannedDate: nextDate(u, from < localNow(u).toISODate()! ? localNow(u).toISODate()! : from), rolloverCount: { increment: 1 }, version: { increment: 1 } } });
@@ -450,4 +502,57 @@ dayRouter.delete('/tasks/:id', async (req, res) => {
     if (plan) await tx.dayPlan.update({ where: { id: plan.id }, data: { items: (plan.items as unknown as PlanItem[]).filter((i) => i.taskId !== t.id) as unknown as Prisma.InputJsonValue } });
   });
   res.json({ day: await dayPayload(u, t.plannedDate!) });
+});
+
+const feedbackSchema = z.object({
+  date: z.string().regex(DATE_RE).optional(),
+  text: z.string().trim().min(1, 'Tell me what to change').max(2000),
+  /** A plan still being reviewed (not saved yet). Without it, the saved plan is changed. */
+  draft: z.object({ settings: settingsSchema, tasks: z.array(taskSchema.extend({ minutesGuessed: z.boolean().optional(), fromEarlier: z.boolean().optional() })).max(40) }).optional(),
+});
+
+const FEEDBACK_HELP = 'Try things like “move leetcode to 9pm”, “core takes 2 hours”, “I’m busy 3-4”, “more breaks”, “project first” or “remove gym”.';
+
+/**
+ * POST /day/feedback — "Tell me what to change": applies plain-language
+ * feedback to a draft plan (returns a new preview) or to the saved plan
+ * (re-plans and saves it), and says exactly what changed.
+ */
+dayRouter.post('/feedback', async (req, res) => {
+  const u = await loadUser(req);
+  const body = parse(feedbackSchema, req.body);
+  const date = resolveDate(u, body.date);
+
+  if (body.draft) {
+    const r = applyFeedback(body.text, body.draft.settings, body.draft.tasks.map((t) => ({ ...t, fixedTime: t.fixedTime ?? null })));
+    const tasks = r.tasks.map((t) => ({ ...t, notBefore: t.notBefore ?? null, dueBy: t.dueBy ?? null })) as (TaskIn & { minutesGuessed?: boolean; fromEarlier?: boolean })[];
+    const preview = tasks.length ? ((await planAndSave(u, date, r.settings as Settings, tasks, [], true)) as { preview: unknown }).preview : null;
+    res.json({
+      settings: r.settings,
+      tasks,
+      removed: r.removed.map((x) => ({ id: x.task.id ?? null, title: x.task.title, tomorrow: x.tomorrow })),
+      changes: r.changes,
+      notUnderstood: r.notUnderstood,
+      help: r.changes.length ? null : FEEDBACK_HELP,
+      preview,
+    });
+    return;
+  }
+
+  // Change the saved plan.
+  const plan = await prisma.dayPlan.findUnique({ where: { userId_date: { userId: u.id, date } } });
+  const settings = (plan?.settings as unknown as Settings | undefined) ?? defaultSettings(u, date);
+  const open = await prisma.task.findMany({ where: { assigneeId: u.id, plannedDate: date, status: { not: 'DONE' } }, orderBy: { createdAt: 'asc' } });
+  const r = applyFeedback(body.text, settings, open.map((t) => ({
+    id: t.id, title: t.title, minutes: t.estimatedMinutes, mustDo: t.mustDo, top: t.dayTop, effort: (t.effort ?? 'MEDIUM') as Effort,
+    fixedTime: t.fixedTime, notBefore: t.notBefore, dueBy: t.dueBy,
+  })));
+  if (!r.changes.length) {
+    res.json({ day: await dayPayload(u, date), changes: [], notUnderstood: r.notUnderstood, help: FEEDBACK_HELP, moved: [] });
+    return;
+  }
+  const removeIds = r.removed.filter((x) => !x.tomorrow && x.task.id).map((x) => x.task.id!);
+  const deferIds = r.removed.filter((x) => x.tomorrow && x.task.id).map((x) => x.task.id!);
+  const saved = await planAndSave(u, date, r.settings as Settings, r.tasks.map((t) => ({ ...t, notBefore: t.notBefore ?? null, dueBy: t.dueBy ?? null })), removeIds, false, deferIds) as { day: unknown; moved: string[]; changed: number };
+  res.json({ ...saved, changes: r.changes, notUnderstood: r.notUnderstood, help: null });
 });

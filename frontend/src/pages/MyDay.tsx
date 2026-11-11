@@ -12,9 +12,10 @@ import { DayWizard } from '../features/day/DayWizard';
 import { Composer } from '../features/day/Composer';
 import { Review } from '../features/day/Review';
 import { LEGEND, Timeline } from '../features/day/Timeline';
-import { clock, duration } from '../features/day/dayUtils';
+import { clock, duration, plain } from '../features/day/dayUtils';
+import { FeedbackPanel, type FeedbackLog } from '../features/day/Feedback';
 import { useProgress } from '../features/progress/progress';
-import type { DayData, DayTask, DayUnderstanding } from '../types';
+import type { DayData, DayFeedbackSaved, DayTask, DayUnderstanding } from '../types';
 
 type Mode = 'compose' | 'review' | 'questions' | 'track';
 
@@ -67,6 +68,7 @@ export default function MyDay() {
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [feedbackLog, setFeedbackLog] = useState<FeedbackLog[]>([]);
   const nowMin = useNowMinute(tz);
   useEffect(() => { if (params.get('plan')) setParams({}, { replace: true }); }, [params, setParams]);
 
@@ -116,6 +118,14 @@ export default function MyDay() {
       : `Re-planned from ${clock(Math.ceil(nowMin / 5) * 5)}: ${r.data.changed} session${r.data.changed === 1 ? '' : 's'} got new times.`;
     setNotice(r.data.moved.length ? `${msg} Moved to tomorrow: ${r.data.moved.join(', ')}.` : msg);
     toast.show(msg, 'success');
+  });
+  const feedback = (text: string) => act('feedback', async () => {
+    const r = await api.post<DayFeedbackSaved>('/day/feedback', { date: viewDate, text });
+    setFeedbackLog((l) => [...l, { text, changes: r.data.changes, notUnderstood: r.data.notUnderstood, help: r.data.help }]);
+    if (r.data.changes.length) {
+      setDay(r.data.day);
+      if (r.data.moved?.length) setNotice(`Carried over to tomorrow: ${r.data.moved.join(', ')}.`);
+    }
   });
   const add = (e: React.FormEvent) => {
     e.preventDefault();
@@ -167,18 +177,9 @@ export default function MyDay() {
           </div>
         )}
         <h2 className="mb-1 text-lg font-semibold">{isToday ? 'What does your day look like?' : 'What’s on for tomorrow?'}</h2>
-        <p className="mb-4 text-sm text-muted">Describe it in your own words. I’ll work out the order, timing and breaks, and you can adjust anything before it’s saved.</p>
+        <p className="mb-4 text-sm text-muted">Describe it in your own words: fixed hours (“work 9 to 6:30”), free gaps (“free 11:30–1”), tasks with or without times, and what matters most. You’ll see the plan first and can change anything by telling me.</p>
         <Composer onSubmit={understand} busy={busy === 'understand'} initial={lastText} onQuestions={() => setMode('questions')} placeholderDay={isToday ? 'today' : 'tomorrow'} />
         {error && <div className="mt-4"><ErrorBox message={error} /></div>}
-        <div className="mt-6 grid gap-3 text-sm sm:grid-cols-3">
-          {[
-            ['Understands you', 'Deadlines, “after lunch”, “by 5pm”, set times and what matters most.'],
-            ['Plans around you', 'Hard work at your best time, breaks after every task, meals kept free.'],
-            ['Keeps you on track', 'Tick tasks off, re-plan when things run late, leftovers move to tomorrow.'],
-          ].map(([t, d]) => (
-            <div key={t} className="rounded-xl border border-border bg-surface p-4"><p className="font-medium">{t}</p><p className="mt-1 text-muted">{d}</p></div>
-          ))}
-        </div>
         {hasPlan && <button className="mt-6 text-sm text-muted hover:text-fg" onClick={() => setMode('track')}>← Back to my current plan</button>}
         {!user?.aiExternalConsent && <p className="mt-4 text-xs text-muted">Want Claude to read your day? Turn on AI in <Link className="text-accent" to="/app/settings">Settings</Link> (it also needs to be enabled on the server).</p>}
       </div>
@@ -268,8 +269,9 @@ export default function MyDay() {
   );
   const actionCards = (
     <>
+      <FeedbackPanel title="Change the plan" hint="Say what should be different. I’ll re-plan the rest of the day and save it." onSend={feedback} busy={busy === 'feedback'} log={feedbackLog} />
           <form onSubmit={add} className="rounded-xl border border-border bg-surface p-4">
-        <label htmlFor="quick-add" className="text-sm font-semibold">Something came up?</label>
+        <label htmlFor="quick-add" className="text-sm font-semibold">Add a task</label>
         <p className="mb-2 text-xs text-muted">Type it naturally, e.g. “call the bank at 4”, “gym after work 1h”. I’ll fit it in.</p>
         <div className="flex gap-2">
           <Input id="quick-add" value={quick} onChange={(e) => setQuick(e.target.value)} placeholder="Add a task…" />
@@ -315,11 +317,11 @@ export default function MyDay() {
                   <div className="min-w-0 flex-1">
                     <p className={clsx('text-sm font-medium', t.done && 'line-through')}>
                       {t.title}
-                      {item.parts ? <span className="ml-1 text-xs font-normal text-muted">· session {item.part} of {item.parts}</span> : null}
+                      {item.parts ? <span className="ml-1.5 text-xs font-normal text-muted">Part {item.part} of {item.parts}</span> : null}
                       {t.top && <span className="ml-2 rounded bg-amber-50 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-700 dark:bg-amber-500/10 dark:text-amber-300">Top priority</span>}
                       {t.rolloverCount > 0 && !t.done && <span className="ml-2 rounded bg-warn-soft px-1.5 py-0.5 text-[10px] font-medium text-warn">carried over</span>}
                     </p>
-                    <p className="mt-0.5 text-xs text-muted">{clock(item.start)} – {clock(item.end)} · {duration(item.end - item.start)}{item.reason && !t.done ? ` · ${item.reason}` : ''}</p>
+                    <p className="mt-0.5 text-xs text-muted">{clock(item.start)} – {clock(item.end)} · {duration(item.end - item.start)}{item.reason && !t.done ? ` · ${plain(item.reason)}` : ''}</p>
                   </div>
                   {!t.done && (
                     <details className="relative">

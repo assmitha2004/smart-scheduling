@@ -25,14 +25,28 @@ export interface UnderstoodTask {
   dueBy: string | null;
 }
 
+/** A fixed commitment such as "work 9 to 6:30" or "class 10-12" (local HH:mm). */
+export interface Commitment { title: string; start: string; end: string }
+/** Free time the person named, e.g. "I can study 11:30-1 and 3-5 in between work". */
+export interface FreeWindow { start: string; end: string; light: boolean }
+
 export interface Understanding {
   date: 'today' | 'tomorrow';
   settings: { dayStart?: string; dayEnd?: string; peak?: Peak };
   tasks: UnderstoodTask[];
+  /** Fixed commitments: never scheduled over, except inside the free windows. */
+  commitments: Commitment[];
+  windows: FreeWindow[];
   notes: string[];
 }
 
 // ---------- time words ----------
+const clockText = (hm: string) => {
+  const m = toMin(hm);
+  const h = Math.floor(m / 60) % 24;
+  const mm = m % 60;
+  return `${h % 12 || 12}${mm ? `:${String(mm).padStart(2, '0')}` : ''}${h < 12 ? 'am' : 'pm'}`;
+};
 
 /**
  * "7", "7pm", "7:30 am", "19:00" → HH:mm. Without am/pm: `morning` reads the
@@ -67,6 +81,74 @@ const timeIn = (text: string, re: RegExp, mode: TimeMode = 'auto'): { time: stri
   return time ? { time, match: m } : null;
 };
 const T = String.raw`(?:(?<word>noon|midday|midnight)|(?<h>\d{1,2})(?::(?<m>\d{2}))?\s*(?<ap>am|pm|a\.m\.|p\.m\.)?)`;
+
+// ---------- time ranges: "9 to 6:30", "11:30-1:00", "3-5pm", "10am – 12" ----------
+const P = String.raw`(\d{1,2})(?:[:.](\d{2}))?\s*(am|pm|a\.m\.|p\.m\.)?`;
+export const RANGE_RE = new RegExp(String.raw`(?:\bfrom\s+|\bbetween\s+)?\b${P}\s*(?:-|–|—|to|till|until)\s*${P}(?!\s*(?:h|hr|hrs|hours?|m|mins?|minutes?)\b)`, 'gi');
+
+/**
+ * Reads a time range the way people say it: "9 to 6:30" is 9am-6:30pm,
+ * "11:30-1" is 11:30am-1pm, "3-5" is 3pm-5pm, "3-5pm" too.
+ */
+export function readRange(h1: string, m1: string | undefined, a1: string | undefined, h2: string, m2: string | undefined, a2: string | undefined): [string, string] | null {
+  const mer = (a?: string) => a?.replace(/\./g, '').toLowerCase() as 'am' | 'pm' | undefined;
+  let ap1 = mer(a1);
+  const ap2 = mer(a2);
+  const H1 = Number(h1);
+  const H2 = Number(h2);
+  if (H1 > 24 || H2 > 24 || Number(m1 ?? 0) > 59 || Number(m2 ?? 0) > 59) return null;
+  // "3-5pm": the first time shares the second's am/pm when that keeps it earlier.
+  if (!ap1 && ap2 && H1 <= 12 && (H1 % 12) <= (H2 % 12)) ap1 = ap2;
+  const start = readTime(h1, m1, ap1, ap1 ? 'auto' : H1 >= 7 && H1 <= 11 ? 'morning' : 'auto');
+  if (!start) return null;
+  let endMin: number;
+  if (ap2) {
+    const e = readTime(h2, m2, ap2);
+    if (!e) return null;
+    endMin = toMin(e);
+  } else {
+    endMin = H2 * 60 + Number(m2 ?? 0);
+    while (endMin <= toMin(start) && endMin < 24 * 60) endMin += 12 * 60;
+  }
+  if (endMin > 24 * 60) endMin = 24 * 60;
+  if (endMin - toMin(start) < 10 || endMin - toMin(start) > 16 * 60) return null;
+  return [start, fromMin(endMin)];
+}
+
+/** All time ranges in a piece of text, with where they are. */
+export function findRanges(text: string): { start: string; end: string; index: number; length: number }[] {
+  const out: { start: string; end: string; index: number; length: number }[] = [];
+  // "between 2 and 4" reads like "2 to 4" (same length, so indexes still line up).
+  const norm = text.replace(/\b(between\s+\S+\s+)and(?=\s)/gi, '$1to ');
+  for (const m of norm.matchAll(RANGE_RE)) {
+    const r = readRange(m[1], m[2], m[3], m[4], m[5], m[6]);
+    if (r) out.push({ start: r[0], end: r[1], index: m.index!, length: m[0].length });
+  }
+  return out;
+}
+
+const COMMITMENT_RE = /\b(work|office|job|shift|duty|internship|class(?:es)?|college|school|lecture|lab|tuition|coaching|meeting|exam|commute|travel(?:ling)?)\b/i;
+const FREE_RE = /\b(free|available|can (?:spend|use|study|work|do|fit)|i have time|have some time|get time|in ?between|gap|breaks? (?:from|between)|spare)\b/i;
+
+/** "Work 9 to 6:30" -> commitment; "I can spend 11:30-1 and 3-5 in between for light study" -> free windows. */
+export function readCommitments(sentence: string): { commitments: Commitment[]; windows: FreeWindow[]; consumed: boolean; rest: string } {
+  const ranges = findRanges(sentence);
+  if (!ranges.length) return { commitments: [], windows: [], consumed: false, rest: sentence };
+  if (FREE_RE.test(sentence)) {
+    const light = /\b(light|easy|quick|small|short|revision|revise)\b/i.test(sentence);
+    return { commitments: [], windows: ranges.map((r) => ({ start: r.start, end: r.end, light })), consumed: true, rest: '' };
+  }
+  const noun = COMMITMENT_RE.exec(sentence);
+  if (!noun) return { commitments: [], windows: [], consumed: false, rest: sentence };
+  const word = noun[1].toLowerCase();
+  const title = /^class/.test(word) ? 'Classes' : word[0].toUpperCase() + word.slice(1);
+  // Remove "work 9 to 6:30 (today)" and keep anything else in the sentence for tasks.
+  let rest = sentence;
+  for (const r of [...ranges].reverse()) rest = rest.slice(0, r.index) + ' ' + rest.slice(r.index + r.length);
+  rest = rest.replace(new RegExp(String.raw`\b(?:i\s+(?:have|am at|'m at|go to)\s+)?(?:my\s+)?${noun[1]}\b`, 'i'), ' ').replace(/\b(today|tomorrow|tonight)\b/gi, ' ').replace(/\s{2,}/g, ' ').trim();
+  if (/^(?:i|and|then|from|at|is|are|have|has)?\W*$/i.test(rest)) rest = '';
+  return { commitments: ranges.map((r) => ({ title, start: r.start, end: r.end })), windows: [], consumed: !rest, rest };
+}
 
 const MEAL_TIMES: Record<string, string> = { breakfast: '08:30', lunch: '14:00', dinner: '21:00' };
 const MEAL_BEFORE: Record<string, string> = { breakfast: '08:00', lunch: '13:00', dinner: '20:00' };
@@ -104,10 +186,39 @@ export function splitClauses(text: string): string[] {
         rest = rest.slice(m.index + m[0].length);
       }
       out.push(rest);
-      return out;
+      return out.flatMap(splitRunOn);
     })
     .map((c) => c.trim().replace(/^(?:(?:and|then|also|plus|after that|afterwards)\s+)+/i, ''))
-    .filter(Boolean);
+    .filter((c) => c && !ONLY_FILLER.test(c));
+}
+
+/** Words that start a new task in a run-on list: "study X do Y study Z". */
+const RUN_VERBS = 'study|learn|revise|practice|practise|do|finish|complete|solve|read|write|prepare|watch|review';
+const RUN_SPLIT = new RegExp(String.raw`\s+(?=(?:${RUN_VERBS})\s+\S)`, 'i');
+/** A piece with no task in it: "I need to", "study", "and then". */
+const FILLER_WORDS = String.raw`i|i'll|i will|need|needs|have|has|got|want|must|should|gotta|to|and|then|also|after|that|so|plus|maybe`;
+const ONLY_FILLER = new RegExp(String.raw`^(?:(?:${FILLER_WORDS})\s*)+$`, 'i');
+const FILLER_OR_VERB = new RegExp(String.raw`^(?:(?:${FILLER_WORDS}|${RUN_VERBS})\s*)+$`, 'i');
+const STUDY_START = new RegExp(String.raw`^(?:${RUN_VERBS}|work on)\b`, 'i');
+
+/**
+ * Splits "I need to study Do 2 leetcode problems study some new technology"
+ * into "Do 2 leetcode problems" and "study some new technology", and
+ * "study my project and some core" into "study my project" and "some core".
+ */
+function splitRunOn(clause: string): string[] {
+  const parts: string[] = [];
+  const pieces = clause.split(RUN_SPLIT).map((x) => x.trim()).filter(Boolean);
+  for (const [i, p] of pieces.entries()) {
+    // A bare verb ("study") or filler ("I need to") belongs to what follows.
+    if (i < pieces.length - 1 && FILLER_OR_VERB.test(p)) continue;
+    // "study my project and some core": after a study verb, "and some/my X" is another subject.
+    const m = STUDY_START.test(p) ? /\s+(?:and|&)\s+(?=(?:some|my|the|a\s+bit\s+of)\s+\w)/i.exec(p) : null;
+    // The second subject keeps the verb: "study my project and some core" -> "study core".
+    if (m) parts.push(p.slice(0, m.index), `${p.split(/\s+/)[0]} ${p.slice(m.index + m[0].length)}`);
+    else parts.push(p);
+  }
+  return parts.length ? parts : [clause];
 }
 
 // ---------- settings ----------
@@ -142,7 +253,7 @@ function stripPhrase(text: string, m: RegExpExecArray | null): string {
   return m ? (text.slice(0, m.index) + ' ' + text.slice(m.index + m[0].length)).replace(/\s{2,}/g, ' ').trim() : text;
 }
 
-export function understandClause(raw: string): UnderstoodTask | null {
+export function understandClause(raw: string, opts: { afterWork?: string } = {}): UnderstoodTask | null {
   let text = raw.trim();
   const lower = text.toLowerCase();
   if (!text || SETTINGS_ONLY.test(text)) return null;
@@ -160,7 +271,7 @@ export function understandClause(raw: string): UnderstoodTask | null {
   let m: RegExpExecArray | null;
   if ((m = /\b(?:after|post)\s+(breakfast|lunch|dinner)\b/i.exec(text))) { notBefore = MEAL_TIMES[m[1].toLowerCase()]; text = stripPhrase(text, m); }
   if ((m = /\bbefore\s+(breakfast|lunch|dinner)\b/i.exec(text))) { dueBy = MEAL_BEFORE[m[1].toLowerCase()]; text = stripPhrase(text, m); }
-  if ((m = /\b(?:after|post)\s+(work|class(?:es)?|college|school|office|uni(?:versity)?)\b/i.exec(text))) { notBefore = '17:30'; text = stripPhrase(text, m); }
+  if ((m = /\b(?:after|post)\s+(work|class(?:es)?|college|school|office|uni(?:versity)?)\b/i.exec(text))) { notBefore = opts.afterWork ?? '17:30'; text = stripPhrase(text, m); }
   if ((m = /\b(?:in\s+the\s+|this\s+)?(morning|afternoon|evening)\b|\b(tonight)\b|\bat\s+(night)\b/i.exec(text))) {
     const part = (m[1] ?? m[2] ?? m[3]).toLowerCase();
     [notBefore, dueBy] = [notBefore ?? PARTS[part][0], dueBy ?? PARTS[part][1]];
@@ -181,7 +292,7 @@ export function understandClause(raw: string): UnderstoodTask | null {
     .replace(/\s{2,}/g, ' ')
     .trim();
   for (let i = 0; i < 3; i++) text = text.replace(FILLER_START, '').replace(FILLER_END, '').trim();
-  text = text.replace(/^(?:a|an|the|my)\s+(?=\S)/i, '').replace(/[\s,;:-]+$/, '');
+  text = text.replace(/^(?:(?:a|an|the|my|some|a bit of)\s+)+(?=\S)/i, '').replace(/^(\w+)\s+(?:some|a bit of)\s+/i, '$1 ').replace(/[\s,;:-]+$/, '');
   if (text.length < 2) return null;
 
   const parsed = parseTaskLine(text);
@@ -197,34 +308,75 @@ export function understandClause(raw: string): UnderstoodTask | null {
 }
 
 export function understandDay(text: string): Understanding {
-  const out: Understanding = { date: 'today', settings: {}, tasks: [], notes: [] };
+  const out: Understanding = { date: 'today', settings: {}, tasks: [], commitments: [], windows: [], notes: [] };
   readSettings(text, out);
   const seen = new Set<string>();
-  for (const clause of splitClauses(text)) {
-    // "that's the most important", "it's urgent", "it's hard": describes the previous task.
-    const remark = /^(?:that|it|this|which)(?:'s|\s+is|\s+was|\s+will\s+be)?\b/i.test(clause)
-      || /^(?:(?:very|super|really|pretty)\s+)?(?:quick(?:ly)?|easy|simple|small|short|hard|difficult|tough|urgent(?:ly)?|important|asap|optional|if possible|if i (?:have|get) (?:the )?time|maybe|not urgent|top priority|most important)(?:\s+one)?$/i.test(clause.trim());
-    if (remark && out.tasks.length) {
-      const prev = out.tasks[out.tasks.length - 1];
-      const c = clause.toLowerCase();
-      if (/\b(most important|top priority|main|biggest|first|number one|#1)\b/.test(c)) { prev.top = true; prev.mustDo = true; }
-      else if (/\b(important|urgent|must|asap|due|deadline)\b/.test(c)) prev.mustDo = true;
-      if (/\b(optional|not urgent|can wait|if (?:i have )?time)\b/.test(c)) { prev.mustDo = false; prev.top = false; }
-      if (/\b(hard|difficult|tough|complex|deep)\b/.test(c)) prev.effort = 'HARD';
-      if (/\b(easy|quick|simple|small|short)\b/.test(c)) {
-        prev.effort = 'EASY';
-        if (/\b(quick|small|short)\b/.test(c) && prev.minutesGuessed) prev.minutes = Math.min(prev.minutes, 15);
+
+  // Sentence by sentence: fixed commitments and free time first, then tasks.
+  const sentences = text.replace(/\r/g, '').split(/\n+|(?<!\d)[.!?;]+(?=\s|$)|(?<=\d)[.!?;]+(?=\s+[A-Za-z]|\s*$)/).map((x) => x.trim()).filter(Boolean);
+  const taskText: { sentence: string; notBefore: string | null; dueBy: string | null; context: 'work' | null }[] = [];
+  for (const sentence of sentences) {
+    const c = readCommitments(sentence);
+    out.commitments.push(...c.commitments);
+    out.windows.push(...c.windows);
+    if (c.consumed || !c.rest) continue;
+    // "After work I need to ...": the time applies to every task in the sentence.
+    let rest = c.rest;
+    let notBefore: string | null = null;
+    let dueBy: string | null = null;
+    let context: 'work' | null = null;
+    const lead = /^(?:and\s+|then\s+|also\s+)?(?:(after|post)\s+(work|office|class(?:es)?|college|school|lunch|dinner|breakfast)|(?:in\s+the\s+|this\s+)?(morning|afternoon|evening)|(tonight)|at\s+(night))\b[,\s]*/i.exec(rest);
+    if (lead) {
+      const what = (lead[2] ?? '').toLowerCase();
+      if (/work|office|class|college|school/.test(what)) context = 'work';
+      else if (what) notBefore = MEAL_TIMES[what];
+      else {
+        const part = (lead[3] ?? lead[4] ?? lead[5]).toLowerCase();
+        [notBefore, dueBy] = PARTS[part];
       }
-      continue;
+      rest = rest.slice(lead[0].length);
     }
-    const t = understandClause(clause);
-    if (!t) continue;
-    const key = t.title.toLowerCase();
-    if (seen.has(key)) continue;
-    seen.add(key);
-    out.tasks.push(t);
-    if (out.tasks.length >= 30) break;
+    taskText.push({ sentence: rest, notBefore, dueBy, context });
   }
+  // "after work" = when the last work-like commitment ends.
+  const workEnds = out.commitments.filter((x) => x.title !== 'Meeting').map((x) => x.end).sort();
+  const afterWork = workEnds.length ? workEnds[workEnds.length - 1] : undefined;
+
+  for (const part of taskText) {
+    for (const clause of splitClauses(part.sentence)) {
+      // "that's the most important", "it's urgent", "it's hard": describes the previous task.
+      const remark = /^(?:that|it|this|which)(?:'s|\s+is|\s+was|\s+will\s+be)?\b/i.test(clause)
+        || /^(?:(?:very|super|really|pretty)\s+)?(?:quick(?:ly)?|easy|simple|small|short|hard|difficult|tough|urgent(?:ly)?|important|asap|optional|if possible|if i (?:have|get) (?:the )?time|maybe|not urgent|top priority|most important)(?:\s+one)?$/i.test(clause.trim());
+      if (remark && out.tasks.length) {
+        const prev = out.tasks[out.tasks.length - 1];
+        const c = clause.toLowerCase();
+        if (/\b(most important|top priority|main|biggest|first|number one|#1)\b/.test(c)) { prev.top = true; prev.mustDo = true; }
+        else if (/\b(important|urgent|must|asap|due|deadline)\b/.test(c)) prev.mustDo = true;
+        if (/\b(optional|not urgent|can wait|if (?:i have )?time)\b/.test(c)) { prev.mustDo = false; prev.top = false; }
+        if (/\b(hard|difficult|tough|complex|deep)\b/.test(c)) prev.effort = 'HARD';
+        if (/\b(easy|quick|simple|small|short)\b/.test(c)) {
+          prev.effort = 'EASY';
+          if (/\b(quick|small|short)\b/.test(c) && prev.minutesGuessed) prev.minutes = Math.min(prev.minutes, 15);
+        }
+        continue;
+      }
+      const t = understandClause(clause, { afterWork });
+      if (!t) continue;
+      if (!t.fixedTime) {
+        // With free time named inside work hours, those gaps are fair game too.
+        if (part.context === 'work' && !t.notBefore && !out.windows.length) t.notBefore = afterWork ?? '17:30';
+        if (part.notBefore && !t.notBefore) t.notBefore = part.notBefore;
+        if (part.dueBy && !t.dueBy) t.dueBy = part.dueBy;
+      }
+      const key = t.title.toLowerCase();
+      if (seen.has(key)) continue;
+      seen.add(key);
+      out.tasks.push(t);
+      if (out.tasks.length >= 30) break;
+    }
+  }
+  if (out.commitments.length) out.notes.push(`I kept ${out.commitments.map((x) => `${x.title.toLowerCase()} (${clockText(x.start)}–${clockText(x.end)})`).join(', ')} free of tasks.`);
+  if (out.windows.length) out.notes.push(`I used your free time ${out.windows.map((w) => `${clockText(w.start)}–${clockText(w.end)}`).join(' and ')}${out.windows.some((w) => w.light) ? ' for lighter work' : ''}.`);
   // Only one #1 priority: the first one mentioned.
   let topSeen = false;
   for (const t of out.tasks) {

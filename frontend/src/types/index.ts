@@ -317,7 +317,35 @@ export interface DayPlanItem {
   parts: number | null;
   reason: string | null;
 }
-export interface DaySettings { dayStart: string; dayEnd: string; peak: Peak }
+export interface DayCommitment { title: string; start: string; end: string }
+export interface DayWindow { start: string; end: string; light: boolean }
+export interface DaySettings {
+  dayStart: string;
+  dayEnd: string;
+  peak: Peak;
+  commitments?: DayCommitment[];
+  windows?: DayWindow[];
+  breaks?: 'SHORT' | 'NORMAL' | 'LONG';
+  maxSession?: number;
+}
+/** POST /day/feedback on a draft plan. */
+export interface DayFeedbackDraft {
+  settings: DaySettings;
+  tasks: DraftDayTask[];
+  removed: { id: string | null; title: string; tomorrow: boolean }[];
+  changes: string[];
+  notUnderstood: string[];
+  help: string | null;
+  preview: DayPreview | null;
+}
+/** POST /day/feedback on the saved plan. */
+export interface DayFeedbackSaved {
+  day: DayData;
+  changes: string[];
+  notUnderstood: string[];
+  help: string | null;
+  moved: string[];
+}
 export interface DayData {
   date: string;
   today: string;
@@ -347,7 +375,7 @@ export interface DraftDayTask {
 }
 export interface DayPreview {
   items: DayPlanItem[];
-  overflow: { taskId: string; title: string; minutes: number; mustDo: boolean }[];
+  overflow: { taskId: string; title: string; minutes: number; mustDo: boolean; partial?: boolean }[];
   insights: string[];
   stats: { freeMinutes: number; plannedMinutes: number; taskCount: number; scheduledCount: number };
 }
