@@ -279,15 +279,40 @@ ai-service/         optional FastAPI service (text → draft tasks)
 docker-compose.yml  postgres, redis, backend, worker, frontend, ai-service
 ```
 
-## Design decisions
+## Where to look in the code
 
-- **Modular monolith.** One Express app split into feature modules: simple to deploy, clear boundaries. The engine
-  runs in-process, so a preview takes tens of milliseconds.
-- **Defence in depth for concurrency.** Version checks catch stale tabs, transactions keep commits atomic, and the
-  database constraint stops double-booking even if the code has a bug.
-- **Business logic as pure functions.** The engine and planners take every input as an argument, which makes them
-  fast to test.
-- **Preview before change.** Every schedule change is either an approved preview or a server-checked drag-and-drop move.
+| File | Why it matters |
+|---|---|
+| [`backend/src/engine/scheduler.ts`](backend/src/engine/scheduler.ts) | Greedy list scheduling into focus blocks, plus the deadline-repair pass |
+| [`backend/src/engine/graph.ts`](backend/src/engine/graph.ts) · [`cpm.ts`](backend/src/engine/cpm.ts) | Cycle detection with the cycle path, topological sort, critical path |
+| [`backend/src/engine/replan.ts`](backend/src/engine/replan.ts) | Moves only affected tasks, returns a before/after diff |
+| [`backend/src/modules/scheduling/scheduling.service.ts`](backend/src/modules/scheduling/scheduling.service.ts) | Preview → commit with version compare-and-set inside a transaction |
+| [`backend/src/modules/tasks/tasks.routes.ts`](backend/src/modules/tasks/tasks.routes.ts) | Dependency cycle check under a per-workspace advisory lock |
+| [`backend/prisma/migrations/20261103035118_init/migration.sql`](backend/prisma/migrations/20261103035118_init/migration.sql) | The exclusion constraint and check constraints |
+| [`backend/src/realtime/socket.ts`](backend/src/realtime/socket.ts) · [`queues/index.ts`](backend/src/queues/index.ts) | Socket.IO rooms, Redis pub/sub relay, BullMQ queue |
+| [`backend/tests/integration/api.test.ts`](backend/tests/integration/api.test.ts) | Concurrency tests against real PostgreSQL |
+
+## Design decisions and trade-offs
+
+| Decision | Why | Trade-off |
+|---|---|---|
+| **Modular monolith** (one Express app, feature modules) | Simple to deploy, clear boundaries; the engine runs in-process, so a preview takes tens of milliseconds | Modules scale together, not independently |
+| **Three layers of concurrency safety**: version checks, transactions, a DB exclusion constraint | Each catches what the one above can miss; the constraint holds even if application code has a bug | A losing request gets a `409` and must refetch |
+| **Engine as pure functions** (even "now" is an argument) | Deterministic, fast to unit-test, no mocks needed | Callers must load all inputs first |
+| **Greedy list scheduling + a repair pass**, not an exact solver | Fast and explainable: every placement comes with a reason; 1,000 tasks in ~0.6 s | Not guaranteed optimal; the repair pass keeps a change only if total lateness drops |
+| **Preview before change** | Users approve a stored recommendation; drag-and-drop moves are dry-run checked on the server first | One extra step before the calendar changes |
+| **Redis and the AI service are optional** | The core app runs with just Node and PostgreSQL | Without Redis there are no reminders or background alerts |
+| **Serverless on Vercel** | Free, one-click deploys for the demo | No WebSockets or long-running workers there; the client detects this via `/api/v1/meta` and falls back to refetching |
+
+### The optional AI service
+
+A small FastAPI service turns text like *"Finish API tests first, then create slides, about two hours"* into
+**draft** tasks with a dependency, which the user reviews before anything is saved.
+
+- A rule-based parser runs by default; an LLM provider is opt-in at deploy time.
+- Output is validated twice: by Pydantic in Python and again by Zod in the API. Invalid items are rejected one by one.
+- The API calls it with a shared secret, checked with a constant-time comparison (`hmac.compare_digest`), so the
+  public route can't be used by anyone else.
 
 ## Next steps
 
