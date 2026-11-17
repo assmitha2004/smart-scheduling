@@ -23,6 +23,7 @@ import { accountRouter } from './modules/account/account.routes.js';
 import { feedSettingsRouter, publicFeedRouter } from './modules/calendar/feed.routes.js';
 import { progressRouter } from './modules/progress/progress.routes.js';
 import { dayRouter } from './modules/day/day.routes.js';
+import { assistantRouter, googleCallbackRouter, integrationsRouter } from './modules/assistant/assistant.routes.js';
 
 export function createApp() {
   const app = express();
@@ -50,6 +51,8 @@ export function createApp() {
   v1.use('/auth', authRouter);
   // Public, token-protected iCalendar feed (calendar apps can't send a login).
   v1.use('/feed', publicFeedRouter);
+  // Google OAuth callback (protected by a signed state, not a login).
+  v1.use('/integrations', googleCallbackRouter);
   v1.use(requireAuth);
   v1.use('/users', usersRouter);
   v1.use('/availability', availabilityRouter);
@@ -67,6 +70,8 @@ export function createApp() {
   v1.use('/calendar-feed', feedSettingsRouter);
   v1.use('/progress', progressRouter);
   v1.use('/day', dayRouter);
+  v1.use('/assistant', assistantRouter);
+  v1.use('/integrations', integrationsRouter);
   app.use('/api/v1', v1);
 
   app.use(notFoundHandler);

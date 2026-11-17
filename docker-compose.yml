@@ -1,5 +1,9 @@
 # Full stack: docker compose up --build   ->  http://localhost:8080
 # Seed demo data: docker compose exec backend npx --yes tsx@4 prisma/seed.ts   (or run the seed locally against the exposed DB)
+#
+# The assistant's AI runs on your own server: Ollama serves an open-source model
+# (OLLAMA_MODEL, pulled on first start by `ollama-pull`), and the Google
+# Calendar/Meet + Gmail MCP servers run as the `mcp` service.
 services:
   postgres:
     image: postgres:16-alpine
@@ -22,16 +26,55 @@ services:
       interval: 5s
       retries: 10
 
+  # Self-hosted open-source LLM. For an NVIDIA GPU, uncomment `deploy` below.
+  ollama:
+    image: ollama/ollama:latest
+    volumes: [ollama:/root/.ollama]
+    environment:
+      OLLAMA_KEEP_ALIVE: 30m
+    healthcheck:
+      test: ["CMD", "ollama", "list"]
+      interval: 10s
+      retries: 10
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices: [{ driver: nvidia, count: all, capabilities: [gpu] }]
+
+  # Downloads the model once (kept in the `ollama` volume), then exits.
+  ollama-pull:
+    image: ollama/ollama:latest
+    entrypoint: ["sh", "-c", "ollama pull ${OLLAMA_MODEL:-qwen2.5:7b-instruct}"]
+    environment:
+      OLLAMA_HOST: http://ollama:11434
+    depends_on:
+      ollama: { condition: service_healthy }
+    restart: "no"
+
   ai-service:
     build: ./ai-service
     environment:
-      # "rules" (default, nothing leaves the server) or "anthropic" (also needs
-      # ANTHROPIC_API_KEY and per-user consent in Settings).
-      AI_PROVIDER: ${AI_PROVIDER:-rules}
+      # "ollama" (default here: open-source model on this server, nothing leaves it),
+      # "rules" (no model) or "anthropic" (needs ANTHROPIC_API_KEY and per-user consent).
+      AI_PROVIDER: ${AI_PROVIDER:-ollama}
+      OLLAMA_URL: http://ollama:11434
+      OLLAMA_MODEL: ${OLLAMA_MODEL:-qwen2.5:7b-instruct}
+      OLLAMA_TIMEOUT_SECONDS: ${OLLAMA_TIMEOUT_SECONDS:-80}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       ANTHROPIC_MODEL: ${ANTHROPIC_MODEL:-claude-opus-5-5}
       AI_SERVICE_TOKEN: ${AI_SERVICE_TOKEN:-}
+    depends_on:
+      ollama: { condition: service_healthy }
     ports: ["8000:8000"]
+
+  # Google Calendar/Meet and Gmail MCP servers (Streamable HTTP). Stateless:
+  # every request carries the user's short-lived Google token from the backend.
+  mcp:
+    build: ./backend
+    command: ["node", "dist/mcp/serve.js"]
+    environment:
+      PORT: "4100"
+      MCP_INTERNAL_TOKEN: ${MCP_INTERNAL_TOKEN:?set MCP_INTERNAL_TOKEN in .env}
 
   backend:
     build: ./backend
@@ -42,11 +85,22 @@ services:
       CORS_ORIGIN: http://localhost:8080
       AI_SERVICE_URL: http://ai-service:8000
       AI_SERVICE_TOKEN: ${AI_SERVICE_TOKEN:-}
+      # A local model on CPU can take a while to answer.
+      AI_SERVICE_TIMEOUT_MS: ${AI_SERVICE_TIMEOUT_MS:-90000}
       PORT: "4000"
+      # Public URL of the app (Google redirects back to $APP_URL/api/v1/integrations/google/callback).
+      APP_URL: ${APP_URL:-http://localhost:8080}
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
+      GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
+      TOKEN_ENCRYPTION_KEY: ${TOKEN_ENCRYPTION_KEY:-}
+      MCP_CALENDAR_URL: http://mcp:4100/mcp/calendar
+      MCP_GMAIL_URL: http://mcp:4100/mcp/gmail
+      MCP_INTERNAL_TOKEN: ${MCP_INTERNAL_TOKEN:?set MCP_INTERNAL_TOKEN in .env}
     depends_on:
       postgres: { condition: service_healthy }
       redis: { condition: service_healthy }
       ai-service: { condition: service_started }
+      mcp: { condition: service_started }
     ports: ["4000:4000"]
 
   worker:
@@ -67,3 +121,4 @@ services:
 
 volumes:
   pgdata:
+  ollama:

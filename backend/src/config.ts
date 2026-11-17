@@ -40,4 +40,28 @@ export const config = {
   aiServiceToken: process.env.AI_SERVICE_TOKEN || undefined,
   aiServiceTimeoutMs: Number(process.env.AI_SERVICE_TIMEOUT_MS ?? 20000),
   planningHorizonDays: Number(process.env.PLANNING_HORIZON_DAYS ?? 28),
+
+  /** Where the web app lives (OAuth redirects back here). */
+  appUrl: process.env.APP_URL || vercelOrigin || (process.env.CORS_ORIGIN ?? 'http://localhost:5173').split(',')[0].trim(),
+  google: {
+    clientId: process.env.GOOGLE_CLIENT_ID || undefined,
+    clientSecret: process.env.GOOGLE_CLIENT_SECRET || undefined,
+    /** Defaults to `${API_PUBLIC_URL or APP_URL}/api/v1/integrations/google/callback`. */
+    redirectUri: process.env.GOOGLE_REDIRECT_URI || undefined,
+  },
+  /** 32-byte key (hex or base64) used to encrypt Google refresh tokens at rest. */
+  tokenEncryptionKey: process.env.TOKEN_ENCRYPTION_KEY || undefined,
+  /**
+   * MCP servers for Google Calendar/Meet and Gmail. When these URLs are set the
+   * backend talks to them over Streamable HTTP (e.g. the `mcp` service in
+   * docker-compose); otherwise the same servers run in-process over an
+   * in-memory transport (local dev, tests, serverless).
+   */
+  mcp: {
+    calendarUrl: process.env.MCP_CALENDAR_URL || undefined,
+    gmailUrl: process.env.MCP_GMAIL_URL || undefined,
+    internalToken: process.env.MCP_INTERNAL_TOKEN || undefined,
+  },
+  /** Offer the built-in sample inbox/calendar so the assistant can be tried without Google. */
+  assistantDemo: process.env.ASSISTANT_DEMO !== 'false',
 };

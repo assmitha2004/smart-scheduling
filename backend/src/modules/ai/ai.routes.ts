@@ -22,7 +22,7 @@ aiRouter.post('/extract-tasks', async (req, res) => {
   const { text } = parse(z.object({ text: z.string().trim().min(3).max(5000) }), req.body);
   const user = await prisma.user.findUniqueOrThrow({ where: { id: me.id } });
   const result = await extractTasks(text, { timezone: user.timezone, allowExternal: user.aiExternalConsent });
-  res.json({ status: 'draft', ...result, externalAiUsed: result.provider !== 'rules', consentGiven: user.aiExternalConsent });
+  res.json({ status: 'draft', ...result, externalAiUsed: result.provider === 'anthropic', aiProvider: result.provider, consentGiven: user.aiExternalConsent });
 });
 
 const confirmSchema = z.object({

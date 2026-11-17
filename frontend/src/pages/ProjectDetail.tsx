@@ -156,6 +156,7 @@ interface ExtractResult {
   warnings: string[];
   provider: string;
   externalAiUsed: boolean;
+  aiProvider?: string;
   consentGiven: boolean;
 }
 
@@ -230,7 +231,7 @@ function AiExtractModal({ open, onClose, projectId }: { open: boolean; onClose: 
           </>
         ) : (
           <>
-            <p className="text-sm text-muted">Review the drafts. Nothing is saved until you click Create. {result.externalAiUsed ? 'Drafted by the AI provider.' : 'Drafted by the built-in parser.'}</p>
+            <p className="text-sm text-muted">Review the drafts. Nothing is saved until you click Create. {result.aiProvider && result.aiProvider !== 'rules' ? (result.aiProvider === 'ollama' ? 'Drafted by your self-hosted AI model.' : 'Drafted by the AI provider.') : 'Drafted by the built-in parser.'}</p>
             {result.warnings.map((w, i) => <div key={i} className="rounded-md bg-warn-soft px-3 py-1.5 text-xs text-warn">{w}</div>)}
             {result.rejected.map((r) => <div key={r.index} className="rounded-md bg-danger-soft px-3 py-1.5 text-xs text-danger">Rejected suggestion {r.title ? `"${r.title}"` : `#${r.index + 1}`}: {r.reasons.join('; ')}</div>)}
             <div className="space-y-2">

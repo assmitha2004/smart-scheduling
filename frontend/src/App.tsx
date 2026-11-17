@@ -10,6 +10,7 @@ import Onboarding from './pages/Onboarding';
 import Dashboard from './pages/Dashboard';
 import MyDay from './pages/MyDay';
 import PlannerChat from './pages/PlannerChat';
+import AssistantPage from './pages/AssistantPage';
 import Tracker from './pages/Tracker';
 // FullCalendar is heavy; load the calendar page on demand.
 const CalendarPage = lazy(() => import('./pages/CalendarPage'));
@@ -43,6 +44,7 @@ export default function App() {
       <Route path="/onboarding" element={<RequireAuth allowUnonboarded><Onboarding /></RequireAuth>} />
       <Route path="/app" element={<RequireAuth><TaskPanelProvider><Layout /></TaskPanelProvider></RequireAuth>}>
         <Route index element={<MyDay />} />
+        <Route path="assistant" element={<AssistantPage />} />
         <Route path="planner" element={<PlannerChat />} />
         <Route path="tracker" element={<Tracker />} />
         <Route path="overview" element={<Dashboard />} />

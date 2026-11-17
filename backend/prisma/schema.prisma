@@ -71,44 +71,51 @@ enum RecommendationStatus {
 }
 
 model User {
-  id                  String   @id @default(uuid()) @db.Uuid
-  name                String
-  email               String   @unique
-  passwordHash        String   @map("password_hash")
-  timezone            String   @default("UTC")
-  focusBlockMinutes   Int      @default(90) @map("focus_block_minutes")
-  allowTaskSplitting  Boolean  @default(true) @map("allow_task_splitting")
-  onboarded           Boolean  @default(false)
+  id                 String   @id @default(uuid()) @db.Uuid
+  name               String
+  email              String   @unique
+  passwordHash       String   @map("password_hash")
+  timezone           String   @default("UTC")
+  focusBlockMinutes  Int      @default(90) @map("focus_block_minutes")
+  allowTaskSplitting Boolean  @default(true) @map("allow_task_splitting")
+  onboarded          Boolean  @default(false)
   /// Optimistic-concurrency version of the user's committed schedule.
-  scheduleVersion     Int      @default(0) @map("schedule_version")
-  quietHoursStart     String?  @map("quiet_hours_start")
-  quietHoursEnd       String?  @map("quiet_hours_end")
+  scheduleVersion    Int      @default(0) @map("schedule_version")
+  quietHoursStart    String?  @map("quiet_hours_start")
+  quietHoursEnd      String?  @map("quiet_hours_end")
   /// e.g. { "taskReminders": true, "deadlineRisk": true, "dependencyUnblocked": true, "dailyPlan": true, "reminderLeadMinutes": 10 }
-  notificationPrefs   Json     @default("{}") @map("notification_prefs")
+  notificationPrefs  Json     @default("{}") @map("notification_prefs")
   /// Explicit consent to send task text to an external AI provider.
-  aiExternalConsent   Boolean  @default(false) @map("ai_external_consent")
+  aiExternalConsent  Boolean  @default(false) @map("ai_external_consent")
   /// "STUDENT", "WORK" or "HYBRID" (work + study); chosen during onboarding.
-  persona             String?
+  persona            String?
   /// Answers from the "Plan my time" questions, so they can be edited and re-run.
-  lifeProfile         Json     @default("{}") @map("life_profile")
+  lifeProfile        Json     @default("{}") @map("life_profile")
   /// Secret for the read-only iCalendar feed (null = feed off).
-  calendarFeedToken   String?  @unique @map("calendar_feed_token")
-  createdAt           DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
-  updatedAt           DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+  calendarFeedToken  String?  @unique @map("calendar_feed_token")
+  /// What the assistant has learned and been told: meeting preferences, learned
+  /// peak hours, estimate accuracy, meeting decisions. See src/assistant/profile.ts.
+  assistantMemory    Json     @default("{}") @map("assistant_memory")
+  createdAt          DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt          DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  ownedWorkspaces   Workspace[]              @relation("WorkspaceOwner")
-  memberships       WorkspaceMember[]
-  assignedTasks     Task[]                   @relation("TaskAssignee")
-  calendarEvents    CalendarEvent[]
-  availabilityRules AvailabilityRule[]
-  dayPlans          DayPlan[]
-  planPrograms      PlanProgram[]
-  scheduledBlocks   ScheduledBlock[]
-  recommendations   ScheduleRecommendation[]
-  notifications     Notification[]
-  activityLogs      ActivityLog[]
-  refreshTokens     RefreshToken[]
-  comments          TaskComment[]
+  ownedWorkspaces    Workspace[]              @relation("WorkspaceOwner")
+  memberships        WorkspaceMember[]
+  assignedTasks      Task[]                   @relation("TaskAssignee")
+  calendarEvents     CalendarEvent[]
+  availabilityRules  AvailabilityRule[]
+  dayPlans           DayPlan[]
+  planPrograms       PlanProgram[]
+  scheduledBlocks    ScheduledBlock[]
+  recommendations    ScheduleRecommendation[]
+  notifications      Notification[]
+  activityLogs       ActivityLog[]
+  refreshTokens      RefreshToken[]
+  comments           TaskComment[]
+  googleAccount      GoogleAccount?
+  assistantQuestions AssistantQuestion[]
+  assistantActions   AssistantAction[]
+  assistantMessages  AssistantMessage[]
 
   @@map("users")
 }
@@ -262,17 +269,22 @@ model TaskComment {
 }
 
 model CalendarEvent {
-  id        String            @id @default(uuid()) @db.Uuid
-  userId    String            @map("user_id") @db.Uuid
-  title     String
-  startAt   DateTime          @map("start_at") @db.Timestamptz(3)
-  endAt     DateTime          @map("end_at") @db.Timestamptz(3)
-  eventType CalendarEventType @default(FIXED) @map("event_type")
-  source    EventSource       @default(MANUAL)
-  createdAt DateTime          @default(now()) @map("created_at") @db.Timestamptz(3)
+  id         String            @id @default(uuid()) @db.Uuid
+  userId     String            @map("user_id") @db.Uuid
+  title      String
+  startAt    DateTime          @map("start_at") @db.Timestamptz(3)
+  endAt      DateTime          @map("end_at") @db.Timestamptz(3)
+  eventType  CalendarEventType @default(FIXED) @map("event_type")
+  source     EventSource       @default(MANUAL)
+  /// Google Calendar event id for events synced by the assistant.
+  externalId String?           @map("external_id")
+  /// Google Meet link, when the event has one.
+  meetUrl    String?           @map("meet_url")
+  createdAt  DateTime          @default(now()) @map("created_at") @db.Timestamptz(3)
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
+  @@unique([userId, externalId])
   @@index([userId, startAt, endAt])
   @@map("calendar_events")
 }
@@ -406,4 +418,91 @@ model PlanProgram {
 
   @@index([userId, status, startDate])
   @@map("plan_programs")
+}
+
+/// A connected Google account (Calendar/Meet + Gmail), used through the MCP servers.
+/// The refresh token is stored encrypted (AES-256-GCM); access tokens are never stored.
+/// `mode` is "google" for a real account or "demo" for the built-in sample inbox.
+model GoogleAccount {
+  id              String    @id @default(uuid()) @db.Uuid
+  userId          String    @unique @map("user_id") @db.Uuid
+  mode            String    @default("google")
+  email           String
+  refreshTokenEnc String?   @map("refresh_token_enc")
+  scopes          String    @default("")
+  /// "CONNECTED" or "NEEDS_RECONNECT" (Google revoked or expired the grant).
+  status          String    @default("CONNECTED")
+  lastSyncAt      DateTime? @map("last_sync_at") @db.Timestamptz(3)
+  createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt       DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("google_accounts")
+}
+
+/// Something the assistant needs the user to decide: a profile fact, an invite, a meeting request.
+model AssistantQuestion {
+  id         String    @id @default(uuid()) @db.Uuid
+  userId     String    @map("user_id") @db.Uuid
+  /// PROFILE, MEETING_INVITE or MEETING_REQUEST
+  kind       String
+  /// Stops the same invite/email/fact from being asked twice.
+  dedupeKey  String    @map("dedupe_key")
+  text       String
+  detail     String?
+  /// [{ id, label, hint?, recommended? }]
+  options    Json      @default("[]")
+  /// Data needed to act on the answer (event id, email thread, slots...).
+  context    Json      @default("{}")
+  /// OPEN, ANSWERED or DISMISSED
+  status     String    @default("OPEN")
+  answer     Json?
+  createdAt  DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  answeredAt DateTime? @map("answered_at") @db.Timestamptz(3)
+
+  user    User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  actions AssistantAction[]
+
+  @@unique([userId, dedupeKey])
+  @@index([userId, status, createdAt])
+  @@map("assistant_questions")
+}
+
+/// An action on the user's Google account, prepared by the assistant. Nothing is
+/// sent or changed until the user approves it.
+model AssistantAction {
+  id         String    @id @default(uuid()) @db.Uuid
+  userId     String    @map("user_id") @db.Uuid
+  questionId String?   @map("question_id") @db.Uuid
+  /// RSVP, SCHEDULE_MEETING or SEND_EMAIL
+  kind       String
+  summary    String
+  payload    Json
+  /// PENDING, RUNNING (being executed), DONE or REJECTED; a failed run goes back to PENDING with `error`.
+  status     String    @default("PENDING")
+  result     Json?
+  error      String?
+  createdAt  DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  executedAt DateTime? @map("executed_at") @db.Timestamptz(3)
+
+  user     User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  question AssistantQuestion? @relation(fields: [questionId], references: [id], onDelete: SetNull)
+
+  @@index([userId, status, createdAt])
+  @@map("assistant_actions")
+}
+
+/// The assistant chat history.
+model AssistantMessage {
+  id        String   @id @default(uuid()) @db.Uuid
+  userId    String   @map("user_id") @db.Uuid
+  role      String
+  text      String
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
+  @@map("assistant_messages")
 }

@@ -18,7 +18,7 @@ React + TypeScript · Node.js/Express REST API · PostgreSQL · Redis
 
 **Live demo:** [smart-scheduling-jet.vercel.app](https://smart-scheduling-jet.vercel.app)
 
-| 135 automated tests | 1,000 tasks scheduled in ~0.6 s | p95 API latency < 27 ms | 0 double-bookings |
+| 181 automated tests | 1,000 tasks scheduled in ~0.6 s | p95 API latency < 27 ms | 0 double-bookings |
 |:---:|:---:|:---:|:---:|
 | run in CI on every push | with 1,063 dependencies | measured on demo data | enforced by the database |
 
@@ -43,6 +43,94 @@ approval, and re-plans only the affected work when something slips.
 - **Real-time updates.** Changes in one tab or from a background job show up live in your other tabs.
 - **Analytics.** Planned vs actual time, workload by project, overdue trend and estimate accuracy.
 - **Calendar sync.** A private iCalendar feed for Google, Apple and Outlook calendars.
+- **Personal scheduling assistant (self-hosted AI).** Learns your routine and timing style, reads Google Calendar/Meet
+  and Gmail through MCP servers, asks you about invites and meeting requests, books meetings with a Meet link after
+  you approve, and plans your day around them. The AI is an open-source model running on your own server (Ollama).
+  [Details below](#personal-scheduling-assistant).
+
+## Personal scheduling assistant
+
+An assistant that learns how you work and plans your day, with the AI running **on your own server**.
+
+```mermaid
+flowchart LR
+  U["Assistant page<br/>questions · approvals · chat"] -->|REST| A
+  subgraph A["Express API"]
+    S["assistant service<br/>learn · ask · approve · plan"]
+    C["MCP client"]
+    P["My Day planner"]
+    S --> C
+    S --> P
+  end
+  C -->|"Streamable HTTP<br/>(or in-process)"| M["MCP servers<br/>Google Calendar + Meet · Gmail"]
+  M -->|"user's OAuth token"| G[("Google APIs")]
+  S -->|"structured prompts"| AI["FastAPI AI service"]
+  AI -->|"JSON-schema output"| O["Ollama<br/>open-source LLM"]
+```
+
+**What it does**
+
+1. **Learns about you.** Asks for what it doesn't know yet (wake/sleep time, working hours, when you focus best),
+   picks up facts from chat ("I work 10 to 7, no meetings before 11"), and **learns from what you actually do**: the
+   part of the day you really finish tasks in, how far your estimates are off, how much of a planned day gets done,
+   and which meeting times you accept or turn down. Each conclusion needs a minimum amount of evidence and is shown
+   with its reason ("You finished 14 of your last 20 tasks in the morning").
+2. **Reads your calendar and inbox through MCP.** Two MCP servers expose Google Calendar (with Meet) and Gmail as
+   tools: `list_events`, `create_meeting`, `respond_to_invite`, `search_messages`, `get_message`, `send_email`.
+   Accepted meetings become busy time in your plan.
+3. **Asks before it acts.** Unanswered invites become *"Will you attend?"* cards, with a warning if they clash or fall
+   in your focus hours, and better times to suggest instead. Emails asking to meet become *"Which time works?"* cards:
+   the times the sender offered are checked against your day, and if none fit, it suggests slots ranked by your
+   routine and habits.
+4. **Nothing is sent without approval.** Answers become actions (RSVP, book a meeting with a Google Meet link and
+   reply in the thread, send an email). You can edit every email before you approve it. Approval is claimed atomically,
+   so a double click can't send twice.
+5. **Plans your day** with the My Day planner: open tasks plus unfinished ones, around meetings and meals, with hard
+   work in your learned peak hours and task lengths corrected by your learned estimate accuracy.
+
+**The AI runs locally.** `AI_PROVIDER=ollama` makes the FastAPI service call an open-source model (default
+`qwen2.5:7b-instruct`) served by Ollama next to the app. It understands chat messages, finds meeting requests in
+emails and drafts replies. Ollama constrains the model's output to a JSON schema, then Pydantic and Zod validate
+every field again; an email reply must contain the exact time it confirms. If the model is down or returns something
+invalid, built-in rule-based readers take over, so the assistant also works with no model at all. Because the model
+is self-hosted, calendar and email content never goes to a third-party AI provider, and the existing features (task
+extraction, day understanding, planner chat, briefings) use the same local model.
+
+**Safety and privacy**
+
+| Concern | How it's handled |
+|---|---|
+| Google tokens | OAuth with a signed, 10-minute `state`; only the refresh token is stored, **AES-256-GCM encrypted**; access tokens live in memory; disconnect revokes the grant at Google |
+| MCP service | Stateless, stores no credentials: each request carries the user's short-lived token; requires a shared `x-mcp-token`; write tools are annotated as non-read-only |
+| Prompt injection in email | Emails are passed as data and the model only produces validated structured data. It never calls tools; every write needs the user's approval |
+| Email header injection | Header values are stripped of newlines before building the RFC 822 message |
+| Duplicates | Questions are de-duplicated per invite/email; emails already read are not sent to the model again |
+
+**Try it without Google:** press *Try with a sample inbox* on the Assistant page. A built-in sample calendar and
+inbox (relative to today) go through the same MCP servers, so you can see the full flow.
+
+### Self-hosting with the local model
+
+```bash
+cp .env.example .env          # set JWT_SECRET, MCP_INTERNAL_TOKEN, TOKEN_ENCRYPTION_KEY (openssl rand -hex 32)
+docker compose up --build     # adds ollama (+ one-time model pull), the ai-service on Ollama, and the mcp service
+```
+
+The first start downloads the model (about 5 GB for `qwen2.5:7b-instruct`; it needs about 8 GB RAM). On a small
+server use `OLLAMA_MODEL=llama3.2:3b`. With an NVIDIA GPU, uncomment the `deploy` block of the `ollama` service.
+
+### Connecting Google (so other people can use it)
+
+1. In [Google Cloud Console](https://console.cloud.google.com/), create a project and enable the **Google Calendar API**
+   and **Gmail API**.
+2. Configure the **OAuth consent screen** (External) and add the scopes `calendar.events`, `gmail.readonly`, `gmail.send`.
+3. Create an **OAuth client ID** (Web application) with the redirect URI
+   `https://YOUR_DOMAIN/api/v1/integrations/google/callback`.
+4. Set `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` and `APP_URL=https://YOUR_DOMAIN` in `.env`.
+
+While the app is in Google's *Testing* mode, only test users you add (up to 100) can connect. To open it to
+everyone, submit the app for Google's verification. `gmail.readonly` is a *restricted* scope, so this includes a
+security assessment.
 
 ## Screenshots
 
@@ -135,7 +223,8 @@ flowchart TB
   API --> RD[("Redis")]
   RD --> WK["BullMQ workers<br/>reminders · daily plan · deadline alerts"]
   WK -->|"events via Redis pub/sub"| API
-  API -.->|"optional"| PY["FastAPI service<br/>text → draft tasks"]
+  API -.->|"optional"| PY["FastAPI AI service<br/>Ollama (self-hosted LLM) or rules"]
+  API -->|"MCP"| MCP["MCP servers<br/>Google Calendar/Meet · Gmail"]
 ```
 
 **Example request: committing a schedule.** The SPA sends `POST /api/v1/schedules/commit` with the preview id and
@@ -153,7 +242,8 @@ Socket.IO event tells other open tabs to refresh → TanStack Query refetches an
 | Jobs and real-time | Redis, BullMQ, Socket.IO |
 | Testing | Vitest, Supertest, Pytest, Playwright |
 | DevOps | Docker Compose, nginx, GitHub Actions, Vercel |
-| Optional service | Python FastAPI for plain-language task entry (Pydantic-validated) |
+| AI | Python FastAPI + Pydantic, **Ollama** running an open-source LLM (Qwen 2.5 / Llama 3) with JSON-schema constrained output; rule-based fallback |
+| Integrations | **Model Context Protocol** (official TypeScript SDK): Google Calendar/Meet and Gmail MCP servers over Streamable HTTP; Google OAuth 2.0 |
 
 ---
 
@@ -161,9 +251,9 @@ Socket.IO event tells other open tabs to refresh → TanStack Query refetches an
 
 | Suite | Tests | Runs in CI |
 |---|:---:|:---:|
-| Engine and planner unit tests (Vitest) | 87 | ✅ |
-| API and worker integration tests against real PostgreSQL (Vitest + Supertest) | 28 | ✅ |
-| Python service tests (Pytest) | 20 | ✅ |
+| Engine, planner and assistant unit tests (Vitest) | 105 | ✅ |
+| API, worker and assistant integration tests against real PostgreSQL (Vitest + Supertest) | 34 | ✅ |
+| Python AI service tests incl. the Ollama provider (Pytest) | 42 | ✅ |
 | End-to-end browser journey (Playwright) | 1 journey | run manually |
 
 ```bash
@@ -207,7 +297,7 @@ working hours, and no blocks overlap.
 ### Option A: Docker (everything)
 
 ```bash
-cp .env.example .env          # set JWT_SECRET
+cp .env.example .env          # set JWT_SECRET and MCP_INTERNAL_TOKEN
 docker compose up --build     # postgres, redis, api, worker, frontend (nginx), ai-service
 ```
 
@@ -253,6 +343,11 @@ together as one project (`vercel.json`). The build runs `prisma migrate deploy` 
 | `JWT_SECRET` | a long random string |
 | `AI_SERVICE_TOKEN` | a random string shared by the API and the Python service |
 | `REDIS_URL` | optional; without it, background jobs are off |
+| `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` / `TOKEN_ENCRYPTION_KEY` | optional; lets users connect Google to the assistant |
+
+Vercel can't run a local model, so the demo there uses the assistant's built-in rules, with the MCP servers
+in-process. For the self-hosted AI, deploy with `docker compose` on any VPS
+(see [Self-hosting with the local model](#self-hosting-with-the-local-model)).
 
 On Vercel the API runs as serverless functions, so there is no WebSocket server and no long-running worker. The
 client detects this through `GET /api/v1/meta` and falls back to refetching. For live updates and background jobs,
@@ -266,6 +361,9 @@ backend/
                     briefings, notifications, day, activity
   src/engine/       scheduling engine (pure functions)
   src/day/          My Day planner and planner chat
+  src/assistant/    assistant: profile, learning, meeting slots, email/chat readers, service
+  src/mcp/          Google Calendar/Meet + Gmail MCP servers, MCP client, HTTP server
+  src/integrations/ Google OAuth, REST client, sample account, token encryption
   src/queues/       BullMQ queues           src/workers/   background jobs
   src/realtime/     Socket.IO + Redis relay src/middleware/ auth, validation, errors
   prisma/           schema, migrations (incl. exclusion constraint), seed
@@ -275,8 +373,8 @@ frontend/
   src/pages/        landing, auth, onboarding, My Day, planner, calendar, projects, analytics, settings
   src/features/     tasks, Gantt timeline, scheduling, analytics, day planner
   e2e/smoke.mjs     Playwright journey
-ai-service/         optional FastAPI service (text → draft tasks)
-docker-compose.yml  postgres, redis, backend, worker, frontend, ai-service
+ai-service/         FastAPI AI service: Ollama / rules, task extraction, assistant prompts
+docker-compose.yml  postgres, redis, backend, worker, frontend, ai-service, ollama, mcp
 ```
 
 ## Where to look in the code
@@ -291,6 +389,10 @@ docker-compose.yml  postgres, redis, backend, worker, frontend, ai-service
 | [`backend/prisma/migrations/20261103035118_init/migration.sql`](backend/prisma/migrations/20261103035118_init/migration.sql) | The exclusion constraint and check constraints |
 | [`backend/src/realtime/socket.ts`](backend/src/realtime/socket.ts) · [`queues/index.ts`](backend/src/queues/index.ts) | Socket.IO rooms, Redis pub/sub relay, BullMQ queue |
 | [`backend/tests/integration/api.test.ts`](backend/tests/integration/api.test.ts) | Concurrency tests against real PostgreSQL |
+| [`backend/src/assistant/service.ts`](backend/src/assistant/service.ts) | Assistant flow: learn → sync via MCP → ask → approve → plan |
+| [`backend/src/mcp/servers.ts`](backend/src/mcp/servers.ts) · [`client.ts`](backend/src/mcp/client.ts) | MCP tools for Calendar/Meet and Gmail; in-process or Streamable HTTP transport |
+| [`backend/src/assistant/learn.ts`](backend/src/assistant/learn.ts) · [`slots.ts`](backend/src/assistant/slots.ts) | Learning timing style from history; ranking meeting slots |
+| [`ai-service/app/llm.py`](ai-service/app/llm.py) · [`assistant.py`](ai-service/app/assistant.py) | Ollama provider with schema-constrained output; assistant prompts |
 
 ## Design decisions and trade-offs
 
@@ -303,20 +405,25 @@ docker-compose.yml  postgres, redis, backend, worker, frontend, ai-service
 | **Preview before change** | Users approve a stored recommendation; drag-and-drop moves are dry-run checked on the server first | One extra step before the calendar changes |
 | **Redis and the AI service are optional** | The core app runs with just Node and PostgreSQL | Without Redis there are no reminders or background alerts |
 | **Serverless on Vercel** | Free, one-click deploys for the demo | No WebSockets or long-running workers there; the client detects this via `/api/v1/meta` and falls back to refetching |
+| **Self-hosted open-source LLM** (Ollama) for the assistant | Calendar and email content stays on your server; no per-token cost | Needs a machine with ~8 GB RAM (or a GPU); smaller models are less accurate, so output is schema-constrained and validated, with rules as the fallback |
+| **Google through MCP servers**, not direct API calls | One typed tool interface that this app and any MCP client can use; the service can run separately and holds no credentials | An extra hop; in-process transport is used where a separate service isn't possible (tests, serverless) |
+| **Structured output instead of free tool-calling** | Small local models are unreliable at choosing tools; the model only fills validated fields and the app decides what to call | Less open-ended than a general agent |
+| **Approve every write** | Email and calendar changes are visible to other people | One extra click per action |
 
-### The optional AI service
+### The AI service
 
-A small FastAPI service turns text like *"Finish API tests first, then create slides, about two hours"* into
+A small FastAPI service runs every language task on the configured model: Ollama (self-hosted, the default in
+`docker compose`), Claude (opt-in per user), or no model (built-in rules). It turns text like *"Finish API tests first, then create slides, about two hours"* into
 **draft** tasks with a dependency, which the user reviews before anything is saved.
 
-- A rule-based parser runs by default; an LLM provider is opt-in at deploy time.
+- A rule-based parser runs when no model is configured or the model fails.
 - Output is validated twice: by Pydantic in Python and again by Zod in the API. Invalid items are rejected one by one.
 - The API calls it with a shared secret, checked with a constant-time comparison (`hmac.compare_digest`), so the
   public route can't be used by anyone else.
 
 ## Next steps
 
-Two-way Google Calendar sync, team capacity balancing, more dependency types (start-to-start, finish-to-finish),
+Push notifications from Google (watch channels) instead of syncing on demand, Outlook/Microsoft 365 MCP servers, team capacity balancing, more dependency types (start-to-start, finish-to-finish),
 recurring tasks, and email or Slack notifications.
 
 ---

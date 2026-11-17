@@ -31,6 +31,9 @@ export function useRealtime(enabled: boolean) {
     socket.on('task:updated', () => {
       for (const k of ['tasks', 'task', 'projects', 'timeline', 'briefing']) qc.invalidateQueries({ queryKey: [k] });
     });
+    socket.on('assistant:updated', () => {
+      for (const k of ['assistant', 'day']) qc.invalidateQueries({ queryKey: [k] });
+    });
     socket.on('notification:new', (n: { message: string }) => {
       qc.invalidateQueries({ queryKey: ['notifications'] });
       toast.show(n.message, 'info');

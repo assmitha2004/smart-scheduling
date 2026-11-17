@@ -70,7 +70,7 @@ export default function Dashboard() {
       <Card className="mb-5 border-accent/30 bg-accent-soft/40">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div className="max-w-3xl">
-            <div className="mb-1 flex items-center gap-2 text-xs font-medium text-accent">Daily briefing {briefing.data!.narrativeSource !== 'engine' && <Badge tone="accent">{briefing.data!.narrativeSource === 'anthropic' ? 'AI-written' : 'rephrased'}</Badge>}</div>
+            <div className="mb-1 flex items-center gap-2 text-xs font-medium text-accent">Daily briefing {briefing.data!.narrativeSource !== 'engine' && <Badge tone="accent">{['anthropic', 'ollama'].includes(briefing.data!.narrativeSource) ? 'AI-written' : 'rephrased'}</Badge>}</div>
             <p className="text-[15px] leading-relaxed">{briefing.data!.narrative}</p>
             {briefing.data!.aiError && <p className="mt-1 text-xs text-muted">AI service unavailable — showing the built-in summary.</p>}
           </div>

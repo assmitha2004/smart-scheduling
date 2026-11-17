@@ -109,11 +109,11 @@ def grounded(text: str, referenced: list[str], facts: dict[str, Any]) -> bool:
 
 
 def make_briefing(req: BriefingRequest) -> BriefingResponse:
-    if req.allow_external and llm.available():
+    if llm.allowed(req.allow_external):
         try:
             out = llm.structured(BRIEFING_SYSTEM, json.dumps(req.facts, default=str), LlmBriefing)
             if grounded(out.text, out.referencedTaskIds, req.facts):
-                return BriefingResponse(text=out.text.strip(), provider="anthropic")
+                return BriefingResponse(text=out.text.strip(), provider=llm.name())
             log.warning("LLM briefing failed grounding check; using template")
         except Exception as e:  # noqa: BLE001
             log.warning("LLM briefing failed, using template: %s", e)
