@@ -9,9 +9,10 @@ import { badRequest, notFound } from '../../utils/errors.js';
 import { emitToUser } from '../../realtime/socket.js';
 import { understandClause, understandDay, type Commitment, type FreeWindow } from '../../day/understand.js';
 import { applyFeedback, sameTask } from '../../day/feedback.js';
-import { planChatWithAi, understandDayWithAi } from '../ai/ai.client.js';
+import { modelAllowed, planChatWithAi, understandDayWithAi } from '../ai/ai.client.js';
 import { expandProgram, mealsFor, planExpandedDay, plannedOn, endDate, MAX_DAYS, type ProgramSpec } from '../../day/program.js';
 import { chatPreview, chatTurn, emptySpec, fillDefaults, type ChatContext, type ChatDraft } from '../../day/planChat.js';
+import { peakOf, readMemory, readProfile } from '../../assistant/profile.js';
 import {
   compliment,
   fromMin,
@@ -47,7 +48,7 @@ interface Settings {
   breaks?: 'SHORT' | 'NORMAL' | 'LONG';
   maxSession?: number;
 }
-interface LifeProfileLite { wakeTime?: string; sleepTime?: string; chronotype?: string; meals?: { lunch?: string | null; dinner?: string | null; breakfast?: string | null } }
+interface LifeProfileLite { meals?: { lunch?: string | null; dinner?: string | null; breakfast?: string | null } }
 
 // ---------- helpers ----------
 const localNow = (u: User) => DateTime.now().setZone(u.timezone);
@@ -62,20 +63,22 @@ function resolveDate(u: User, raw: unknown): string {
   return raw;
 }
 
-/** Sensible day settings from the user's saved routine (if any). */
+/** Sensible day settings from the user's routine: what they told the assistant or "Plan my time", and what it learned. */
 function defaultSettings(u: User, date: string): Settings {
-  const p = (u.lifeProfile ?? {}) as LifeProfileLite;
-  const wake = toMin(p.wakeTime ?? '07:00');
-  let sleep = toMin(p.sleepTime ?? '23:00');
+  const prof = readProfile(u);
+  const wake = toMin(prof.routine.wakeTime ?? '07:00');
+  let sleep = toMin(prof.routine.sleepTime ?? '23:00');
   if (sleep <= wake) sleep = 1440;
-  const peak: Peak = p.chronotype === 'EARLY_BIRD' ? 'MORNING' : p.chronotype === 'NIGHT_OWL' ? 'EVENING' : 'AFTERNOON';
+  const peak: Peak = peakOf(prof);
   let start = Math.min(wake + 30, 1380);
   if (isToday(u, date)) {
     const n = localNow(u);
     start = Math.max(start, Math.ceil((n.hour * 60 + n.minute) / 15) * 15);
   }
   const end = Math.max(Math.min(1440, sleep - 60), Math.min(1440, start + 60));
-  return { dayStart: fromMin(Math.min(start, 1425)), dayEnd: fromMin(end), peak };
+  // Session length only when the person told the assistant (not the "Plan my time" default).
+  const focus = readMemory(u.assistantMemory).routine.focusMinutes;
+  return { dayStart: fromMin(Math.min(start, 1425)), dayEnd: fromMin(end), peak, ...(focus ? { maxSession: focus } : {}) };
 }
 
 async function myDayProject(userId: string): Promise<string> {
@@ -352,14 +355,15 @@ dayRouter.post('/understand', async (req, res) => {
   let source: 'ai' | 'rules' = 'rules';
   let understood = understandDay(body.text);
   const notes: string[] = [];
+  const useModel = await modelAllowed(u);
   try {
-    const ai = await understandDayWithAi(body.text, new Date(), u.aiExternalConsent);
+    const ai = useModel ? await understandDayWithAi(body.text, new Date(), u.aiExternalConsent) : null;
     if (ai) {
       source = 'ai';
       understood = {
         date: ai.date,
         settings: { dayStart: ai.day_start ?? undefined, dayEnd: ai.day_end ?? undefined, peak: ai.peak ?? undefined },
-        // Claude reads tasks; commitments and free gaps come from the built-in reader.
+        // The model reads tasks; commitments and free gaps come from the built-in reader.
         commitments: understood.commitments,
         windows: understood.windows,
         tasks: ai.tasks.map((t) => ({ title: t.title, minutes: t.minutes, minutesGuessed: t.minutes_guessed, mustDo: t.must_do, top: t.top, effort: t.effort, fixedTime: t.fixed_time ?? null, notBefore: t.not_before ?? null, dueBy: t.due_by ?? null })),
@@ -367,7 +371,7 @@ dayRouter.post('/understand', async (req, res) => {
       };
     }
   } catch {
-    if (u.aiExternalConsent) notes.push('Claude wasn’t reachable, so I used the built-in planner to read your day.');
+    if (useModel) notes.push('The AI model wasn’t reachable, so I used the built-in planner to read your day.');
   }
   if (!understood.tasks.length) throw badRequest('I couldn’t find any tasks in that. Try listing what you need to do, like “study 2h, gym, call mom at 7pm”.');
 
@@ -409,7 +413,7 @@ dayRouter.post('/understand', async (req, res) => {
   if (carried) notes.push(`I added ${carried} task${carried > 1 ? 's' : ''} left over from before.`);
 
   const { preview } = (await planAndSave(u, date, settings, tasks, [], true)) as { preview: unknown };
-  res.json({ date, settings, tasks, notes: [...understood.notes, ...notes], source, aiAvailable: u.aiExternalConsent, preview });
+  res.json({ date, settings, tasks, notes: [...understood.notes, ...notes], source, aiAvailable: useModel, preview });
 });
 
 /** POST /day/plan — plan (or preview with dryRun) the day from the answers. */
@@ -420,9 +424,15 @@ dayRouter.post('/plan', async (req, res) => {
   res.json(await planAndSave(u, date, body.settings, body.tasks, body.removeIds, body.dryRun, body.deferIds));
 });
 
+/** Planning time for a task when the person's estimates are known to run long/short (learned by the assistant). */
+function adjusted(minutes: number, factor?: number | null): number | undefined {
+  if (!factor || Math.abs(factor - 1) < 0.05) return undefined;
+  return Math.min(720, Math.max(5, Math.round((minutes * factor) / 5) * 5));
+}
+
 /** POST /day/replan — re-plans the rest of the day from now, e.g. after "I need more time". */
 /** Re-plans the open tasks of a day from now, keeping tasks in progress going. */
-async function replanDay(u: User, date: string, extend?: { taskId: string; minutes: number }) {
+async function replanDay(u: User, date: string, extend?: { taskId: string; minutes: number }, estimateFactor?: number | null) {
   const plan = await prisma.dayPlan.findUnique({ where: { userId_date: { userId: u.id, date } } });
   const settings = (plan?.settings as unknown as Settings | undefined) ?? defaultSettings(u, date);
   const tasks = await prisma.task.findMany({ where: { assigneeId: u.id, plannedDate: date, status: { not: 'DONE' } }, orderBy: { createdAt: 'asc' } });
@@ -431,7 +441,7 @@ async function replanDay(u: User, date: string, extend?: { taskId: string; minut
   const nowMin = n.hour * 60 + n.minute;
   const input: TaskIn[] = tasks.map((t) => {
     let minutes = t.estimatedMinutes;
-    let planMinutes: number | undefined;
+    let planMinutes: number | undefined = adjusted(t.estimatedMinutes, estimateFactor);
     // A task already under way keeps only its remaining time (it isn't restarted from zero).
     const current = items.filter((i) => i.taskId === t.id);
     const running = isToday(u, date) ? current.find((i) => i.start <= nowMin && nowMin < i.end) : undefined;
@@ -723,8 +733,9 @@ dayRouter.post('/plan-chat', async (req, res) => {
   let source: 'ai' | 'rules' = 'rules';
   let turn = null as ReturnType<typeof chatTurn> | null;
   let note: string | null = null;
+  const useModel = await modelAllowed(u);
   try {
-    const ai = await planChatWithAi({ history: body.history.slice(-20), message: body.message, spec: draftIn?.spec ?? emptySpec(ctx), today: ctx.today, now: localNow(u).toISO()!, defaults: ctx.defaults }, u.aiExternalConsent);
+    const ai = !useModel ? null : await planChatWithAi({ history: body.history.slice(-20), message: body.message, spec: draftIn?.spec ?? emptySpec(ctx), today: ctx.today, now: localNow(u).toISO()!, defaults: ctx.defaults }, u.aiExternalConsent);
     if (ai) {
       const spec = programSpecSchema.safeParse(ai.spec);
       if (spec.success) {
@@ -737,7 +748,7 @@ dayRouter.post('/plan-chat', async (req, res) => {
       }
     }
   } catch {
-    if (u.aiExternalConsent) note = 'Claude wasn’t reachable, so the built-in planner answered.';
+    if (useModel) note = 'The AI model wasn’t reachable, so the built-in planner answered.';
   }
   turn ??= chatTurn(body.message, draftIn, ctx);
   res.json({ ...turn, source, note, preview: chatPreview(turn.draft.spec, ctx) });
@@ -849,3 +860,47 @@ dayRouter.get('/progress', async (req, res) => {
   }
   res.json({ from: q.from, to: q.to, today, days, totals: { ...totals, rate: totals.planned ? Math.round((totals.done / totals.planned) * 100) : 0 }, streak, programs: programs.filter((p) => p.status === 'ACTIVE').map((p) => programInfo(p, today)) });
 });
+
+// ---------- used by the assistant ----------
+
+/** Adds tasks written in plain words ("gym 1h, call mom at 6pm") to a day; returns their titles. */
+export async function addTasksFromText(u: User, date: string, text: string): Promise<string[]> {
+  const projectId = await myDayProject(u.id);
+  const added: string[] = [];
+  for (const part of text.split(/\s*(?:,|;|\n|\band then\b|\bthen\b)\s*/i).map((x) => x.trim()).filter(Boolean).slice(0, 10)) {
+    const t = understandClause(part) ?? (() => { const p = parseTaskLine(part); return p && { ...p, mustDo: false, top: false, notBefore: null, dueBy: null }; })();
+    if (!t) continue;
+    await prisma.task.create({ data: { projectId, assigneeId: u.id, title: t.title, estimatedMinutes: t.minutes, effort: t.effort, fixedTime: t.fixedTime, notBefore: t.notBefore, dueBy: t.dueBy, mustDo: t.mustDo, plannedDate: date } });
+    added.push(t.title);
+  }
+  return added;
+}
+
+/**
+ * Plans (or re-plans) a day for the assistant: the day's open tasks plus
+ * unfinished ones from earlier days, around the calendar (synced meetings
+ * included), using the learned routine and estimate accuracy.
+ */
+export async function planDayForAssistant(u: User, date: string, estimateFactor: number | null) {
+  const r = await planOrReplan(u, date, estimateFactor);
+  return { day: r.day!, moved: r.moved ?? [], changed: r.changed ?? 0 };
+}
+
+async function planOrReplan(u: User, date: string, estimateFactor: number | null) {
+  const existing = await prisma.dayPlan.findUnique({ where: { userId_date: { userId: u.id, date } } });
+  if (existing) return replanDay(u, date, undefined, estimateFactor);
+  const tasks = await prisma.task.findMany({
+    where: { assigneeId: u.id, status: { not: 'DONE' }, plannedDate: { not: null, lte: date } },
+    orderBy: [{ plannedDate: 'desc' }, { createdAt: 'asc' }],
+    take: 25,
+  });
+  let topSeen = false;
+  const input: TaskIn[] = tasks.map((t) => {
+    const top = t.dayTop && t.plannedDate === date && !topSeen;
+    if (top) topSeen = true;
+    return { id: t.id, title: t.title, minutes: t.estimatedMinutes, planMinutes: adjusted(t.estimatedMinutes, estimateFactor), mustDo: t.mustDo, top, effort: (t.effort ?? 'MEDIUM') as Effort, fixedTime: t.fixedTime, notBefore: t.notBefore, dueBy: t.dueBy };
+  });
+  return planAndSave(u, date, defaultSettings(u, date), input, [], false);
+}
+
+export { dayPayload };

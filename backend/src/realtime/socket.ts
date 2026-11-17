@@ -15,7 +15,8 @@ export type RealtimeEvent =
   | 'schedule:updated'
   | 'task:updated'
   | 'notification:new'
-  | 'calendar:updated';
+  | 'calendar:updated'
+  | 'assistant:updated';
 
 let io: Server | null = null;
 let publisher: Redis | null = null;

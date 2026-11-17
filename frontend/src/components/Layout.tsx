@@ -8,6 +8,7 @@ import { LevelChip, ProgressWatcher } from '../features/progress/progress';
 
 const NAV = [
   { to: '/app', label: 'My Day', icon: 'M12 3v2M12 19v2M5.6 5.6l1.4 1.4M17 17l1.4 1.4M3 12h2M19 12h2M5.6 18.4 7 17M17 7l1.4-1.4M12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8z', end: true },
+  { to: '/app/assistant', label: 'Assistant', icon: 'M12 3a4 4 0 0 1 4 4v1h1a3 3 0 0 1 3 3v5a3 3 0 0 1-3 3H7a3 3 0 0 1-3-3v-5a3 3 0 0 1 3-3h1V7a4 4 0 0 1 4-4zM9 13h.01M15 13h.01M10 16h4' },
   { to: '/app/planner', label: 'Planner chat', icon: 'M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.6A8 8 0 1 1 21 12zM8 10h8M8 14h5' },
   { to: '/app/tracker', label: 'Tracker', icon: 'M4 5h16v15H4zM4 9h16M9 3v4M15 3v4M8 13h2M12 13h2M16 13h0M8 17h2M12 17h2' },
   { to: '/app/overview', label: 'Overview', icon: 'M3 12l9-9 9 9M5 10v10h14V10' },

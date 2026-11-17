@@ -291,12 +291,12 @@ def extract_with_llm(req: ExtractRequest) -> ExtractResponse:
     for t in tasks:
         if t.estimatedMinutes is None:
             warnings.append(f'Estimate needed for "{t.title}" - please confirm one.')
-    return ExtractResponse(tasks=tasks, dependencies=deps, warnings=warnings, provider="anthropic")
+    return ExtractResponse(tasks=tasks, dependencies=deps, warnings=warnings, provider=llm.name())
 
 
 def extract_tasks(req: ExtractRequest) -> ExtractResponse:
     """Uses Claude only with explicit consent and credentials; otherwise (or on any failure) the rules engine."""
-    if req.allow_external and llm.available():
+    if llm.allowed(req.allow_external):
         try:
             return extract_with_llm(req)
         except Exception as e:  # noqa: BLE001 - any provider failure falls back safely
